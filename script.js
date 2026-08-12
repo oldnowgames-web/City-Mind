@@ -336,9 +336,11 @@ let cameraYawAlvo = null;
 let cameraPitchAlvo = null;
 // Quão rápido a câmera "alcança" o alvo a cada frame. Maior = mais em cima do
 // dedo (mais direto, menos fluido). Menor = mais suave/fluido, mas com mais
-// atraso entre o dedo e a câmera. 18 é um meio-termo; tente entre 10 (bem
-// fluido) e 30 (quase instantâneo) pra achar o gosto.
-const VELOCIDADE_SUAVIZACAO_CAMERA_TOUCH = 18;
+// atraso entre o dedo e a câmera. Valor aumentado de 18 pra 26 (a câmera estava
+// respondendo devagar/"pesada" ao dedo) — ainda suaviza o tremor da mão, mas
+// bem mais em cima do movimento real do dedo. Ajuste entre 10 (bem fluido/lento)
+// e 30 (quase instantâneo) pra achar o gosto.
+const VELOCIDADE_SUAVIZACAO_CAMERA_TOUCH = 26;
 
 // OTIMIZAÇÃO: Vetores fixos para evitar sobrecarga de memória nas rotações da casa
 const vetorColisaoAux = new THREE.Vector3();
@@ -349,11 +351,30 @@ if (ehTouch && typeof nipplejs !== 'undefined') {
     controlesMobileDiv.style.display = 'block';
     const manager = nipplejs.create({
         zone: document.getElementById('zona-joystick'),
-        mode: 'static',
+        // CORREÇÃO (joystick "preso" numa direção): no modo 'static' a base ficava
+        // travada num pixel fixo (centro exato da zona) que o dedo quase nunca toca
+        // certinho. Como não existia zona-morta, o mero TOQUE (sem arrastar nada) já
+        // gerava uma direção "de verdade", enviesada pro lado onde o dedo pousou. O
+        // modo 'semi' faz a base reaparecer bem embaixo do dedo a cada novo toque,
+        // então o ponto de partida sempre é o centro real do gesto.
+        mode: 'semi',
         position: { left: '50%', top: '50%' },
         color: 'white'
     });
+
+    // Abaixo desse tanto de força (0 = parado, 1 = no limite do raio), tratamos como
+    // "dedo só encostou/tremeu", não como intenção de andar. Sem isso, qualquer
+    // toque minúsculo perto do centro (inevitável com o modo 'static' antigo, e
+    // mesmo com 'semi' o dedo pode tremer) virava uma direção fantasma constante.
+    const ZONA_MORTA_JOYSTICK = 0.15;
+
     manager.on('move', (evt, data) => {
+        if (data.force < ZONA_MORTA_JOYSTICK) {
+            moverFrente = moverTras = moverEsquerda = moverDireita = false;
+            multiplicadorJoystick = 1;
+            return;
+        }
+
         const angle = data.angle.degree;
         // CORREÇÃO (jogabilidade estranha no celular): antes cada direção ocupava uma
         // fatia de 90° sem sobreposição, então só dava pra andar reto pra frente, trás,
@@ -4825,105 +4846,122 @@ function animar() {
     if (moverEsquerda || moverDireita) velocidade.x -= direcao.x * VELOCIDADE_BASE * multV * multiplicadorJoystick * redutorAgua * delta;
     if (estaNaAgua) { velocidade.x *= 0.85; velocidade.z *= 0.85; }
 
-    // 2. MOVA O JOGADOR NA HORIZONTAL PRIMEIRO (A Mágica acontece aqui)
-    const posAntigaX = posJ.x, posAntigaZ = posJ.z;
-    controles.moveRight(-velocidade.x * delta); 
-    controles.moveForward(-velocidade.z * delta);
+    // 2. MOVA O JOGADOR NA HORIZONTAL EM SUB-PASSOS (evita atravessar paredes)
+    // CORREÇÃO (sem colisão no celular): mover tudo de uma vez com um delta grande
+    // (FPS baixo/instável, comum no celular) fazia o jogador "pular" mais que a
+    // espessura de uma parede (~0.3) num único frame — a checagem de colisão só
+    // testa a posição final, então ele simplesmente atravessava tudo sem nunca
+    // "tocar" o colisor no meio do caminho. Agora quebramos o deslocamento do
+    // frame em pedaços pequenos (no máximo ~0.15 por sub-passo) e resolvemos
+    // colisão a cada pedaço, então não tem mais como pular por cima de nada.
+    const dxFrame = -velocidade.x * delta;
+    const dzFrame = -velocidade.z * delta;
+    const distFrame = Math.sqrt(dxFrame * dxFrame + dzFrame * dzFrame);
+    const PASSO_MAX_COLISAO = 0.15;
+    const numSubPassos = Math.min(8, Math.max(1, Math.ceil(distFrame / PASSO_MAX_COLISAO)));
 
-    // 3. AGORA SIM, CALCULA A ALTURA DO CHÃO NA POSIÇÃO NOVA
     let alturaDoChaoReal = obterAlturaTerreno(posJ.x, posJ.z);
-    let noPisoDaPonte = false;
-
-    // --- CORREÇÃO E TRATAMENTO DE INTERIORES E ROTAÇÃO NATIVA ---
-    for(let zona of zonasInteriores) {
-        if(zona.tipo === 'ponte') {
-            if (posJ.x >= zona.minX && posJ.x <= zona.maxX) {
-                if (posJ.z >= zona.corpoMinZ && posJ.z <= zona.corpoMaxZ) { alturaDoChaoReal = zona.yBase; noPisoDaPonte = true; } 
-                else if (posJ.z >= (zona.corpoMinZ - zona.escadaL) && posJ.z < zona.corpoMinZ) { 
-                    let fatorInterp = (posJ.z - (zona.corpoMinZ - zona.escadaL)) / zona.escadaL;
-                    alturaDoChaoReal = THREE.MathUtils.lerp(obterAlturaTerreno(posJ.x, posJ.z), zona.yBase, fatorInterp); noPisoDaPonte = true; 
-                } 
-                else if (posJ.z > zona.corpoMaxZ && posJ.z <= (zona.corpoMaxZ + zona.escadaL)) { 
-                    let fatorInterp = ((zona.corpoMaxZ + zona.escadaL) - posJ.z) / zona.escadaL;
-                    alturaDoChaoReal = THREE.MathUtils.lerp(obterAlturaTerreno(posJ.x, posJ.z), zona.yBase, fatorInterp); noPisoDaPonte = true; 
-                }
-            }
-        }
-        else if (zona.tipo === 'casa') { 
-            if (Math.abs(posJ.x - zona.x) < zona.w/2 && Math.abs(posJ.z - zona.z) < zona.d/2) {
-                alturaDoChaoReal = zona.pisos[0];
-            }
-        }
-        else if (zona.tipo === 'casa_andares') { 
-            let dx = posJ.x - zona.x, dz = posJ.z - zona.z;
-            vetorColisaoAux.set(dx, 0, dz);
-            vetorColisaoAux.applyAxisAngle(eixoY, -zona.rot);
-
-            if (Math.abs(vetorColisaoAux.x) < zona.w/2 && Math.abs(vetorColisaoAux.z) < zona.d/2) {
-                let pisoAlvo = zona.pisos[0];
-                for(let p of zona.pisos) { if (posJ.y - ALTURA_JOGADOR + 1.0 > p) pisoAlvo = p; }
-                alturaDoChaoReal = pisoAlvo;
-            }
-        }
-    }
-
     let alturaPisoAtual = alturaDoChaoReal + ALTURA_JOGADOR;
-    
-    // --- COLISÃO FÍSICA DINÂMICA (CASAS OCAS COM ROTAÇÃO 3D PERFEITA) ---
-    for (let i = 0; i < objetosMundo.length; i++) {
-        const obj = objetosMundo[i]; 
-        let colidiu = false;
-        
-        if (obj.isCasaConstruida) {
-            let dx = posJ.x - obj.x, dz = posJ.z - obj.z;
-            vetorColisaoAux.set(dx, 0, dz);
-            vetorColisaoAux.applyAxisAngle(eixoY, -obj.rot);
-            let localX = vetorColisaoAux.x;
-            let localZ = vetorColisaoAux.z;
-            
-            if (posJ.y - ALTURA_JOGADOR < obj.topoY - 0.2) {
-                let margemExterna = 0.4;
-                let espessuraParede = 0.8;
-                let halfW = obj.w / 2, halfD = obj.d / 2;
 
-                let tocandoCaixaExterna = Math.abs(localX) < (halfW + margemExterna) && Math.abs(localZ) < (halfD + margemExterna);
-                let totalmenteDentro = Math.abs(localX) < (halfW - espessuraParede) && Math.abs(localZ) < (halfD - espessuraParede);
+    for (let sub = 0; sub < numSubPassos; sub++) {
+        const posAntigaX = posJ.x, posAntigaZ = posJ.z;
+        controles.moveRight(dxFrame / numSubPassos);
+        controles.moveForward(dzFrame / numSubPassos);
 
-                if (tocandoCaixaExterna && !totalmenteDentro) {
-                    let naPortaX = Math.abs(localX) < 1.2; 
-                    let naParedeFrontal = localZ > (halfD - espessuraParede - 0.2); 
+        // 3. AGORA SIM, CALCULA A ALTURA DO CHÃO NA POSIÇÃO NOVA
+        alturaDoChaoReal = obterAlturaTerreno(posJ.x, posJ.z);
 
-                    if (naPortaX && naParedeFrontal) {
-                        // NOVO: só atravessa livremente se a casa tiver porta E ela estiver aberta.
-                        // Porta fechada (ou casa sem porta associada) bloqueia a passagem, como uma parede.
-                        colidiu = !(obj.porta && obj.porta.userData.aberta);
-                    } else {
-                        colidiu = true; 
+        // --- CORREÇÃO E TRATAMENTO DE INTERIORES E ROTAÇÃO NATIVA ---
+        for (let zona of zonasInteriores) {
+            if (zona.tipo === 'ponte') {
+                if (posJ.x >= zona.minX && posJ.x <= zona.maxX) {
+                    if (posJ.z >= zona.corpoMinZ && posJ.z <= zona.corpoMaxZ) { alturaDoChaoReal = zona.yBase; }
+                    else if (posJ.z >= (zona.corpoMinZ - zona.escadaL) && posJ.z < zona.corpoMinZ) {
+                        let fatorInterp = (posJ.z - (zona.corpoMinZ - zona.escadaL)) / zona.escadaL;
+                        alturaDoChaoReal = THREE.MathUtils.lerp(obterAlturaTerreno(posJ.x, posJ.z), zona.yBase, fatorInterp);
+                    }
+                    else if (posJ.z > zona.corpoMaxZ && posJ.z <= (zona.corpoMaxZ + zona.escadaL)) {
+                        let fatorInterp = ((zona.corpoMaxZ + zona.escadaL) - posJ.z) / zona.escadaL;
+                        alturaDoChaoReal = THREE.MathUtils.lerp(obterAlturaTerreno(posJ.x, posJ.z), zona.yBase, fatorInterp);
                     }
                 }
             }
-        }
-        else if (obj.isBox) { 
-            if (posJ.x > obj.minX && posJ.x < obj.maxX && posJ.z > obj.minZ && posJ.z < obj.maxZ) {
-                // NOVO: se essa caixa representa o vão de uma porta, só bloqueia quando ela está fechada
-                colidiu = obj.porta ? !obj.porta.userData.aberta : true;
+            else if (zona.tipo === 'casa') {
+                if (Math.abs(posJ.x - zona.x) < zona.w / 2 && Math.abs(posJ.z - zona.z) < zona.d / 2) {
+                    alturaDoChaoReal = zona.pisos[0];
+                }
             }
-        } 
-        else { 
-            const dx = posJ.x - obj.x, dz = posJ.z - obj.z; 
-            if (Math.sqrt(dx*dx + dz*dz) < obj.raio) colidiu = true; 
+            else if (zona.tipo === 'casa_andares') {
+                let dx = posJ.x - zona.x, dz = posJ.z - zona.z;
+                vetorColisaoAux.set(dx, 0, dz);
+                vetorColisaoAux.applyAxisAngle(eixoY, -zona.rot);
+
+                if (Math.abs(vetorColisaoAux.x) < zona.w / 2 && Math.abs(vetorColisaoAux.z) < zona.d / 2) {
+                    let pisoAlvo = zona.pisos[0];
+                    for (let p of zona.pisos) { if (posJ.y - ALTURA_JOGADOR + 1.0 > p) pisoAlvo = p; }
+                    alturaDoChaoReal = pisoAlvo;
+                }
+            }
         }
-        
-        if (colidiu) {
-            if (posJ.y - ALTURA_JOGADOR >= obj.topoY - 0.6) {
-                alturaPisoAtual = obj.topoY + ALTURA_JOGADOR;
-            } else { 
-                posJ.x = posAntigaX; 
-                posJ.z = posAntigaZ; 
-                // CRÍTICO: Recalcula a altura se bater de cara na parede para não levitar!
-                alturaPisoAtual = obterAlturaTerreno(posJ.x, posJ.z) + ALTURA_JOGADOR; 
-                break; 
-            } 
+
+        alturaPisoAtual = alturaDoChaoReal + ALTURA_JOGADOR;
+
+        // --- COLISÃO FÍSICA DINÂMICA (CASAS OCAS COM ROTAÇÃO 3D PERFEITA) ---
+        for (let i = 0; i < objetosMundo.length; i++) {
+            const obj = objetosMundo[i];
+            let colidiu = false;
+
+            if (obj.isCasaConstruida) {
+                let dx = posJ.x - obj.x, dz = posJ.z - obj.z;
+                vetorColisaoAux.set(dx, 0, dz);
+                vetorColisaoAux.applyAxisAngle(eixoY, -obj.rot);
+                let localX = vetorColisaoAux.x;
+                let localZ = vetorColisaoAux.z;
+
+                if (posJ.y - ALTURA_JOGADOR < obj.topoY - 0.2) {
+                    let margemExterna = 0.4;
+                    let espessuraParede = 0.8;
+                    let halfW = obj.w / 2, halfD = obj.d / 2;
+
+                    let tocandoCaixaExterna = Math.abs(localX) < (halfW + margemExterna) && Math.abs(localZ) < (halfD + margemExterna);
+                    let totalmenteDentro = Math.abs(localX) < (halfW - espessuraParede) && Math.abs(localZ) < (halfD - espessuraParede);
+
+                    if (tocandoCaixaExterna && !totalmenteDentro) {
+                        let naPortaX = Math.abs(localX) < 1.2;
+                        let naParedeFrontal = localZ > (halfD - espessuraParede - 0.2);
+
+                        if (naPortaX && naParedeFrontal) {
+                            // NOVO: só atravessa livremente se a casa tiver porta E ela estiver aberta.
+                            // Porta fechada (ou casa sem porta associada) bloqueia a passagem, como uma parede.
+                            colidiu = !(obj.porta && obj.porta.userData.aberta);
+                        } else {
+                            colidiu = true;
+                        }
+                    }
+                }
+            }
+            else if (obj.isBox) {
+                if (posJ.x > obj.minX && posJ.x < obj.maxX && posJ.z > obj.minZ && posJ.z < obj.maxZ) {
+                    // NOVO: se essa caixa representa o vão de uma porta, só bloqueia quando ela está fechada
+                    colidiu = obj.porta ? !obj.porta.userData.aberta : true;
+                }
+            }
+            else {
+                const dx = posJ.x - obj.x, dz = posJ.z - obj.z;
+                if (Math.sqrt(dx * dx + dz * dz) < obj.raio) colidiu = true;
+            }
+
+            if (colidiu) {
+                if (posJ.y - ALTURA_JOGADOR >= obj.topoY - 0.6) {
+                    alturaPisoAtual = obj.topoY + ALTURA_JOGADOR;
+                } else {
+                    posJ.x = posAntigaX;
+                    posJ.z = posAntigaZ;
+                    // CRÍTICO: Recalcula a altura se bater de cara na parede para não levitar!
+                    alturaPisoAtual = obterAlturaTerreno(posJ.x, posJ.z) + ALTURA_JOGADOR;
+                    break;
+                }
+            }
         }
     }
 
@@ -5167,7 +5205,9 @@ atualizarDinheiroUI();
 // (menor) de girar no celular. Ele é dividido pela largura da tela, então o
 // "sentimento" (quanto a câmera gira por polegada arrastada) fica parecido em
 // celulares com telas de tamanhos/resoluções diferentes.
-const SENSIBILIDADE_CAMERA_TOUCH = 1.3;
+// CORREÇÃO (sensibilidade ruim): 1.3 deixava a câmera "pesada", precisando de
+// arrastões enormes pra girar um pouco. Subido pra 2.6 (dobrado).
+const SENSIBILIDADE_CAMERA_TOUCH = 2.6;
 
 let touchOlharId = null;
 let touchOlharAnteriorX = 0;
