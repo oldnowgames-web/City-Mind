@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=none">
+    <title>City Mind</title>
+    <link rel="stylesheet" href="style.css?v=14">
+
+    <script>
+        // DIAGNÓSTICO TEMPORÁRIO: mostra qualquer erro de JavaScript na tela
+        // (útil pra ver erros no celular, onde não dá pra abrir o console facilmente).
+        // Pode remover esse bloco depois que o jogo estiver funcionando.
+        window.onerror = function (mensagem, url, linha, coluna, erro) {
+            alert('ERRO NO JOGO:\n' + mensagem + '\n\nArquivo: ' + url + '\nLinha: ' + linha + ':' + coluna);
+            return false;
+        };
+    </script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.9.0/nipplejs.min.js"></script>
+</head>
+
+<body>
+
+    <div id="canvas-container"></div>
+    <div id="crosshair"></div>
+
+    <div id="notificacao">Mensagem</div>
+
+    <div id="dinheiro-hud">$0.00</div>
+
+    <div id="barra-coleta-container">
+        <div id="barra-coleta-progresso"></div>
+    </div>
+
+    <div id="tela-start" class="overlay-tela">
+        <div class="conteudo-start">
+            <h1 class="titulo-3d" data-text="CRAFT PRINT">CITY MIND</h1>
+            <p class="subtitulo">Explore, Colete e Construa seu Mundo </p>
+            
+            <div class="painel-botoes">
+                <button id="btn-iniciar-jogo" class="btn-principal">
+                    <span>▶ PLAY NOW</span>
+                </button>
+                <button id="btn-abrir-controles-start" class="btn-secundario">
+                    🕹️ Ver Controles
+                </button>
+            </div>
+
+            <div class="footer-creditos">Pressione o botão para entrar na floresta</div>
+        </div>
+    </div>
+
+    <div id="menu-pause" class="overlay-tela" style="display: none;">
+        <div class="painel-pause">
+            <h2 class="titulo-pause">JOGO PAUSADO</h2>
+            <div class="linha-divisoria"></div>
+            
+            <div class="menu-pause-opcoes">
+                <button id="btn-retomar" class="btn-pause">▶ Continuar Jogando</button>
+                <button id="btn-controles-pause" class="btn-pause">🕹️ Como Jogar</button>
+                <button id="btn-reiniciar" class="btn-pause btn-danger">🔄 Recarregar Jogo</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-controles" class="overlay-tela" style="display: none;">
+        <div class="conteudo-start">
+            <h2 style="color: #fbbf24; margin-top: 0;">🕹️ CONTROLES</h2>
+            <div style="text-align: left; line-height: 1.8; margin: 20px 0; font-size: 0.95rem; color: #d1d5db;">
+                <p><b>W, A, S, D:</b> Movimentar</p>
+                <p><b>Mouse:</b> Olhar ao redor</p>
+                <p><b>Clique Esquerdo (segurar):</b> Cortar árvores / Minerar</p>
+                <p><b>Teclas [1 a 9]:</b> Alternar itens do inventário</p>
+                <p><b>Tecla [E]:</b> Abrir Mesa de Crafting / Interagir</p>
+                <p><b>Tecla [B]:</b> Abrir Mochila</p>
+                <p><b>Teclas [R / T]:</b> Girar planta de construção</p>
+                <p><b>Roda do Mouse:</b> Ajustar a distância de colocação (empurrar mais longe/perto)</p>
+                <p><b>Posicionamento:</b> a maioria das construções agora é livre (segue o mouse exatamente) — só piso e cama ficam numa grade alinhada. Segure <b>[Shift]</b> pra inverter isso (grade nos itens livres, livre no piso/cama)</p>
+                <p><b>🚗 Carro:</b> Compre no Computador, posicione-o no mundo e pressione [E] perto dele para entrar. W/A/S/D dirige, [F] liga/desliga os faróis, [E] sai.</p>
+                <p><b>📺 Televisão:</b> Compre no Computador, posicione-a no mundo e pressione [E] perto dela pra ligar e escolher um minigame (cobrinha, jogo da velha, memória, pong e reflexo).</p>
+                <p><b>ESC:</b> Pausar o jogo / Menu</p>
+            </div>
+            <button id="btn-fechar-controles" class="btn-secundario">Fechar</button>
+        </div>
+    </div>
+
+    <!-- Os slots aqui dentro agora são criados dinamicamente pelo script.js,
+         na ordem em que o jogador conquista cada item (função renderizarHotbar). -->
+    <div id="inventario-hud"></div>
+
+    <div id="mochila-container">
+        <div class="mochila-header">
+            <h2>🎒 Sua Mochila</h2>
+            <button id="btn-fechar-mochila">X</button>
+        </div>
+        <div class="mochila-grid">
+            <div class="slot-item" id="slot-madeira"><span style="font-size: 26px;">🪵</span><span class="qtd" id="txt-qtd-madeira">0</span></div>
+            <div class="slot-item" id="slot-pedra"><span style="font-size: 26px;">🪨</span><span class="qtd" id="txt-qtd-pedra">0</span></div>
+            <div class="slot-item" id="slot-ferro"><img style="height: 65%; width: 90%;" src="img/ferro.png" alt=""><span class="qtd" id="txt-qtd-ferro">0</span></div>
+            <div class="slot-item" id="slot-cobre"><img style="height: 65%; width: 90%;" src="img/cobre.png" alt=""><span class="qtd" id="txt-qtd-cobre">0</span></div>
+            <div class="slot-item" id="slot-ouro"><img style="height: 65%; width: 90%;" src="img/ouro.png" alt=""><span class="qtd" id="txt-qtd-ouro">0</span></div>
+        </div>
+    </div>
+
+    <div id="menu-crafting">
+        <div class="crafting-header">
+            <h2>🛠️ Mesa de Trabalho</h2>
+            <button id="btn-fechar-crafting" class="btn-fechar-x" aria-label="Fechar">✕</button>
+        </div>
+
+        <div class="crafting-saldo">
+            <span class="saldo-chip">🪵 <b id="craft-saldo-madeira">0</b></span>
+            <span class="saldo-chip">🪨 <b id="craft-saldo-pedra">0</b></span>
+        </div>
+
+        <div class="crafting-abas">
+            <button class="aba-craft ativa" data-aba="construcoes">🏠 Construções</button>
+            <button class="aba-craft" data-aba="delimitacao">🚧 Delimitação</button>
+            <button class="aba-craft" data-aba="moveis">🪑 Móveis</button>
+            <button class="aba-craft" data-aba="utilidades">🧰 Utilidades</button>
+        </div>
+
+        <div class="crafting-grid" data-painel="construcoes">
+            <div class="card-craft" id="craft-casa-p" data-custo-madeira="20" data-custo-pedra="0">
+                <div class="card-icone"><canvas id="canvas-casa-p" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Casa Pequena</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 20</span></div>
+                <button onclick="craftarConstrucao('p', 20)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-casa-m" data-custo-madeira="30" data-custo-pedra="0">
+                <div class="card-icone"><canvas id="canvas-casa-m" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Casa Média</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 30</span></div>
+                <button onclick="craftarConstrucao('m', 30)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-casa-g" data-custo-madeira="45" data-custo-pedra="0">
+                <div class="card-icone"><canvas id="canvas-casa-g" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Casa Grande</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 45</span></div>
+                <button onclick="craftarConstrucao('g', 45)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-torre" data-custo-madeira="45" data-custo-pedra="15">
+                <div class="card-icone"><div class="icone-emoji">🗼</div></div>
+                <div class="card-nome">Torre-Farol</div>
+                <div class="card-custos">
+                    <span class="custo-chip" data-recurso="madeira">🪵 45</span>
+                    <span class="custo-chip" data-recurso="pedra">🪨 15</span>
+                </div>
+                <button onclick="craftarConstrucao('torre', 45, 15)">Criar Planta</button>
+            </div>
+        </div>
+
+        <div class="crafting-grid" data-painel="delimitacao" style="display:none;">
+            <div class="card-craft" id="craft-cerca" data-custo-madeira="10" data-custo-pedra="0">
+                <div class="card-icone"><canvas id="canvas-cerca" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Cerca de Madeira x5</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 10</span></div>
+                <button onclick="craftarConstrucao('cerca', 10, 0)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-muro" data-custo-madeira="0" data-custo-pedra="15">
+                <div class="card-icone"><canvas id="canvas-muro" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Muro de Pedra x5</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">🪨 15</span></div>
+                <button onclick="craftarConstrucao('muro', 0, 15)">Criar Planta</button>
+            </div>
+        </div>
+
+        <div class="crafting-grid" data-painel="moveis" style="display:none;">
+            <div class="card-craft" id="craft-mesa" data-custo-madeira="6" data-custo-pedra="0">
+                <div class="card-icone"><canvas id="canvas-mesa" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Mesa</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 6</span></div>
+                <button onclick="craftarConstrucao('mesa', 6, 0)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-cadeira" data-custo-madeira="3" data-custo-pedra="0">
+                <div class="card-icone"><canvas id="canvas-cadeira" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Cadeira</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 3</span></div>
+                <button onclick="craftarConstrucao('cadeira', 3, 0)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-bau" data-custo-madeira="8" data-custo-pedra="2">
+                <div class="card-icone"><canvas id="canvas-bau" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Baú</div>
+                <div class="card-custos">
+                    <span class="custo-chip" data-recurso="madeira">🪵 8</span>
+                    <span class="custo-chip" data-recurso="pedra">🪨 2</span>
+                </div>
+                <button onclick="craftarConstrucao('bau', 8, 2)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-lareira" data-custo-madeira="3" data-custo-pedra="6">
+                <div class="card-icone"><canvas id="canvas-lareira" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Lareira</div>
+                <div class="card-custos">
+                    <span class="custo-chip" data-recurso="madeira">🪵 3</span>
+                    <span class="custo-chip" data-recurso="pedra">🪨 6</span>
+                </div>
+                <button onclick="craftarConstrucao('lareira', 3, 6)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-banco" data-custo-madeira="4" data-custo-pedra="0">
+                <div class="card-icone"><div class="icone-emoji">🪑</div></div>
+                <div class="card-nome">Banco de Madeira</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 4</span></div>
+                <button onclick="craftarConstrucao('banco', 4, 0)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-armario" data-custo-madeira="9" data-custo-pedra="0">
+                <div class="card-icone"><div class="icone-emoji">🗄️</div></div>
+                <div class="card-nome">Armário</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 9</span></div>
+                <button onclick="craftarConstrucao('armario', 9, 0)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-estante" data-custo-madeira="7" data-custo-pedra="0">
+                <div class="card-icone"><div class="icone-emoji">📚</div></div>
+                <div class="card-nome">Estante de Livros</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 7</span></div>
+                <button onclick="craftarConstrucao('estante', 7, 0)">Criar Planta</button>
+            </div>
+        </div>
+
+        <div class="crafting-grid" data-painel="utilidades" style="display:none;">
+            <div class="card-craft" id="craft-fogueira" data-custo-madeira="2" data-custo-pedra="4">
+                <div class="card-icone"><img src="img/fogueira.png" alt="Fogueira" class="icone-craft-img"></div>
+                <div class="card-nome">Fogueira</div>
+                <div class="card-custos">
+                    <span class="custo-chip" data-recurso="madeira">🪵 2</span>
+                    <span class="custo-chip" data-recurso="pedra">🪨 4</span>
+                </div>
+                <button onclick="craftarConstrucao('fogueira', 2, 4)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-piso" data-custo-madeira="0" data-custo-pedra="6">
+                <div class="card-icone"><img src="img/piso.png" alt="Piso" class="icone-craft-img"></div>
+                <div class="card-nome">Piso de Pedra x10</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">🪨 6</span></div>
+                <button onclick="craftarConstrucao('piso', 0, 6)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-tocha" data-custo-madeira="1" data-custo-pedra="1">
+                <div class="card-icone"><div class="icone-emoji">🕯️</div></div>
+                <div class="card-nome">Tocha</div>
+                <div class="card-custos">
+                    <span class="custo-chip" data-recurso="madeira">🪵 1</span>
+                    <span class="custo-chip" data-recurso="pedra">🪨 1</span>
+                </div>
+                <button onclick="craftarConstrucao('tocha', 1, 1)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-cama" data-custo-madeira="4" data-custo-pedra="0">
+                <div class="card-icone"><div class="icone-emoji">🛏️</div></div>
+                <div class="card-nome">Cama</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 4</span></div>
+                <button onclick="craftarConstrucao('cama', 4, 0)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-poste" data-custo-madeira="0" data-custo-pedra="5">
+                <div class="card-icone"><div class="icone-emoji">💡</div></div>
+                <div class="card-nome">Poste de Luz</div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">🪨 5</span></div>
+                <button onclick="craftarConstrucao('poste', 0, 5)">Criar Planta</button>
+            </div>
+        </div>
+
+        <div class="crafting-footer">Pressione <b>E</b> ou <b>ESC</b> para fechar</div>
+    </div>
+
+    <div id="menu-loja">
+        <div class="loja-header">
+            <h2>🖥️ Computador de Vendas</h2>
+            <button id="btn-fechar-loja" class="btn-fechar-x" aria-label="Fechar">✕</button>
+        </div>
+
+        <div class="loja-abas">
+            <button class="aba-loja ativa" data-aba-loja="vender">💰 Vender Recursos</button>
+            <button class="aba-loja" data-aba-loja="comprar">🛒 Comprar Produtos</button>
+        </div>
+
+        <div class="loja-painel" data-loja-painel="vender">
+
+        <div class="loja-grid">
+            <div class="loja-item" id="loja-item-madeira" data-recurso="madeira">
+                <div class="loja-item-icone"><span style="font-size: 26px;">🪵</span></div>
+                <div class="loja-item-info">
+                    <div class="loja-item-nome">Madeira</div>
+                    <div class="loja-item-preco">$300.00 / unidade</div>
+                    <div class="loja-item-disponivel">Disponível: <span id="loja-disp-madeira">0</span></div>
+                </div>
+                <div class="loja-item-acao">
+                    <input type="number" id="loja-input-madeira" class="loja-input-qtd" min="0" step="1" placeholder="0" inputmode="numeric">
+                    <button onclick="adicionarRecursoAVenda('madeira')">Adicionar</button>
+                </div>
+            </div>
+
+            <div class="loja-item" id="loja-item-pedra" data-recurso="pedra">
+                <div class="loja-item-icone"><span style="font-size: 26px;">🪨</span></div>
+                <div class="loja-item-info">
+                    <div class="loja-item-nome">Pedra</div>
+                    <div class="loja-item-preco">$350.00 / unidade</div>
+                    <div class="loja-item-disponivel">Disponível: <span id="loja-disp-pedra">0</span></div>
+                </div>
+                <div class="loja-item-acao">
+                    <input type="number" id="loja-input-pedra" class="loja-input-qtd" min="0" step="1" placeholder="0" inputmode="numeric">
+                    <button onclick="adicionarRecursoAVenda('pedra')">Adicionar</button>
+                </div>
+            </div>
+
+            <div class="loja-item" id="loja-item-ferro" data-recurso="ferro">
+                <div class="loja-item-icone"><img style="height: 65%; width: 90%;" src="img/ferro.png" alt=""></div>
+                <div class="loja-item-info">
+                    <div class="loja-item-nome">Ferro</div>
+                    <div class="loja-item-preco">$1,100.00 / unidade</div>
+                    <div class="loja-item-disponivel">Disponível: <span id="loja-disp-ferro">0</span></div>
+                </div>
+                <div class="loja-item-acao">
+                    <input type="number" id="loja-input-ferro" class="loja-input-qtd" min="0" step="1" placeholder="0" inputmode="numeric">
+                    <button onclick="adicionarRecursoAVenda('ferro')">Adicionar</button>
+                </div>
+            </div>
+
+            <div class="loja-item" id="loja-item-cobre" data-recurso="cobre">
+                <div class="loja-item-icone"><img style="height: 65%; width: 90%;" src="img/cobre.png" alt=""></div>
+                <div class="loja-item-info">
+                    <div class="loja-item-nome">Cobre</div>
+                    <div class="loja-item-preco">$800.00 / unidade</div>
+                    <div class="loja-item-disponivel">Disponível: <span id="loja-disp-cobre">0</span></div>
+                </div>
+                <div class="loja-item-acao">
+                    <input type="number" id="loja-input-cobre" class="loja-input-qtd" min="0" step="1" placeholder="0" inputmode="numeric">
+                    <button onclick="adicionarRecursoAVenda('cobre')">Adicionar</button>
+                </div>
+            </div>
+
+            <div class="loja-item" id="loja-item-ouro" data-recurso="ouro">
+                <div class="loja-item-icone"><img style="height: 65%; width: 90%;" src="img/ouro.png" alt=""></div>
+                <div class="loja-item-info">
+                    <div class="loja-item-nome">Ouro</div>
+                    <div class="loja-item-preco">$2,000.00 / unidade</div>
+                    <div class="loja-item-disponivel">Disponível: <span id="loja-disp-ouro">0</span></div>
+                </div>
+                <div class="loja-item-acao">
+                    <input type="number" id="loja-input-ouro" class="loja-input-qtd" min="0" step="1" placeholder="0" inputmode="numeric">
+                    <button onclick="adicionarRecursoAVenda('ouro')">Adicionar</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="loja-carrinho">
+            <h3>🛒 Itens para Vender</h3>
+            <div id="loja-carrinho-lista">
+                <div class="carrinho-vazio">Nenhum item adicionado ainda.</div>
+            </div>
+            <div class="loja-total">Total da Venda: <span id="loja-total-valor">$0.00</span></div>
+        </div>
+
+        <div class="loja-acoes">
+            <button id="btn-fechar-venda" class="btn-principal-loja" disabled>💰 Fechar Venda</button>
+        </div>
+
+        </div>
+
+        <div class="loja-painel" data-loja-painel="comprar" style="display:none;">
+            <div class="loja-grid">
+                <div class="loja-item loja-item-carro" id="loja-produto-carro" data-produto="carro">
+                    <div class="loja-item-linha-topo">
+                        <div class="loja-item-icone"><span style="font-size: 26px;">🚗</span></div>
+                        <div class="loja-item-info">
+                            <div class="loja-item-nome">Carro</div>
+                            <div class="loja-item-preco">$20,000.00</div>
+                            <div class="loja-item-disponivel">Você possui: <span id="loja-possui-carro">0</span></div>
+                        </div>
+                        <div class="loja-item-acao">
+                            <button id="loja-btn-comprar-carro" onclick="comprarProduto('carro')">Comprar</button>
+                        </div>
+                    </div>
+                    <div class="loja-cor-linha">
+                        <span class="loja-cor-rotulo">Cor:</span>
+                        <div class="paleta-cores-carro" id="paleta-cores-carro">
+                            <button class="cor-opcao ativa" data-cor="#dc2626" style="background:#dc2626" title="Vermelho"></button>
+                            <button class="cor-opcao" data-cor="#2563eb" style="background:#2563eb" title="Azul"></button>
+                            <button class="cor-opcao" data-cor="#111827" style="background:#111827" title="Preto"></button>
+                            <button class="cor-opcao" data-cor="#f3f4f6" style="background:#f3f4f6" title="Branco"></button>
+                            <button class="cor-opcao" data-cor="#9ca3af" style="background:#9ca3af" title="Prata"></button>
+                            <button class="cor-opcao" data-cor="#16a34a" style="background:#16a34a" title="Verde"></button>
+                            <button class="cor-opcao" data-cor="#eab308" style="background:#eab308" title="Amarelo"></button>
+                            <button class="cor-opcao" data-cor="#ea580c" style="background:#ea580c" title="Laranja"></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="loja-item" id="loja-produto-tv" data-produto="tv">
+                    <div class="loja-item-icone"><span style="font-size: 26px;">📺</span></div>
+                    <div class="loja-item-info">
+                        <div class="loja-item-nome">Televisão</div>
+                        <div class="loja-item-preco">$2,000.00</div>
+                        <div class="loja-item-disponivel">Você possui: <span id="loja-possui-tv">0</span></div>
+                    </div>
+                    <div class="loja-item-acao">
+                        <button id="loja-btn-comprar-tv" onclick="comprarProduto('tv')">Comprar</button>
+                    </div>
+                </div>
+
+                <div class="loja-item loja-item-carro" id="loja-produto-tapete" data-produto="tapete">
+                    <div class="loja-item-linha-topo">
+                        <div class="loja-item-icone"><span style="font-size: 26px;">🟥</span></div>
+                        <div class="loja-item-info">
+                            <div class="loja-item-nome">Tapete</div>
+                            <div class="loja-item-preco">$100.00</div>
+                            <div class="loja-item-disponivel">Você possui: <span id="loja-possui-tapete">0</span></div>
+                        </div>
+                        <div class="loja-item-acao">
+                            <button id="loja-btn-comprar-tapete" onclick="comprarProduto('tapete')">Comprar</button>
+                        </div>
+                    </div>
+                    <div class="loja-cor-linha">
+                        <span class="loja-cor-rotulo">Cor:</span>
+                        <div class="paleta-cores-carro" id="paleta-cores-tapete">
+                            <button class="cor-opcao ativa" data-cor="#b91c1c" style="background:#b91c1c" title="Vermelho"></button>
+                            <button class="cor-opcao" data-cor="#2563eb" style="background:#2563eb" title="Azul"></button>
+                            <button class="cor-opcao" data-cor="#111827" style="background:#111827" title="Preto"></button>
+                            <button class="cor-opcao" data-cor="#f3f4f6" style="background:#f3f4f6" title="Branco"></button>
+                            <button class="cor-opcao" data-cor="#9ca3af" style="background:#9ca3af" title="Cinza"></button>
+                            <button class="cor-opcao" data-cor="#16a34a" style="background:#16a34a" title="Verde"></button>
+                            <button class="cor-opcao" data-cor="#eab308" style="background:#eab308" title="Amarelo"></button>
+                            <button class="cor-opcao" data-cor="#7e22ce" style="background:#7e22ce" title="Roxo"></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="loja-item" id="loja-produto-asfalto" data-produto="asfalto">
+                    <div class="loja-item-icone"><span style="font-size: 26px;">⬛</span></div>
+                    <div class="loja-item-info">
+                        <div class="loja-item-nome">Piche de Asfalto (10 blocos)</div>
+                        <div class="loja-item-preco">$300.00</div>
+                        <div class="loja-item-disponivel">Você possui: <span id="loja-possui-asfalto">0</span></div>
+                    </div>
+                    <div class="loja-item-acao">
+                        <button id="loja-btn-comprar-asfalto" onclick="comprarProduto('asfalto')">Comprar</button>
+                    </div>
+                </div>
+            </div>
+            <div class="loja-comprar-info">
+                🔑 Escolha a cor, depois compre. O carro vai pro inventário já com a cor escolhida — equipe e posicione-o
+                no mundo, como uma construção. Fique perto dele e pressione <b>E</b> para entrar e dirigir (W/A/S/D). Pressione <b>E</b> de novo para sair.<br><br>
+                📺 A televisão também é posicionada como uma construção. Fique perto dela e pressione <b>E</b> para ligar e escolher um minigame — tudo roda direto no navegador, sem precisar de nenhum arquivo extra.<br><br>
+                ⬛ Cada compra de asfalto já vem com 10 blocos prontos pra usar. Ele "pinta" um pedaço grande do chão, ótimo pra ruas, calçadas e praças — diferente do piso (pedra pequena, craftada na mesa de trabalho), o bloco de asfalto é bem maior e vem pronto da loja.
+            </div>
+            <div class="loja-comprar-em-breve">Mais produtos em breve...</div>
+        </div>
+
+        <div class="loja-footer">Pressione <b>E</b> ou <b>ESC</b> para sair (itens não vendidos voltam pra mochila)</div>
+    </div>
+
+    <!-- Menu da TV: grade de minigames. Clicar num card abre o jogo escolhido. -->
+    <div id="menu-tv">
+        <div class="tv-header">
+            <h2>📺 Escolha um Minigame</h2>
+            <button id="btn-fechar-tv" class="btn-fechar-x" aria-label="Fechar">✕</button>
+        </div>
+        <div class="tv-grid" id="tv-grid"></div>
+        <div class="tv-footer">Pressione <b>E</b> ou <b>ESC</b> para desligar a TV</div>
+    </div>
+
+    <!-- Minigame ativo: aparece por cima do menu ao escolher um card. -->
+    <div id="menu-tv-jogo">
+        <div class="tv-video-header">
+            <span id="tv-jogo-titulo">Jogo</span>
+            <div class="tv-video-botoes">
+                <button id="btn-voltar-tv-jogo">⬅ Voltar aos jogos</button>
+                <button id="btn-fechar-tv-jogo" class="btn-fechar-x" aria-label="Fechar">✕</button>
+            </div>
+        </div>
+        <div id="tv-jogo-area"></div>
+    </div>
+
+    <div id="aviso-orientacao">
+        <p>Por favor, vire o celular na <b>Horizontal</b> para jogar!</p>
+    </div>
+
+    <button id="btn-fullscreen">Fullscreen ⛶</button>
+
+    <div id="prompt-interacao">Pressione E para Interagir</div>
+
+    <div id="controles-mobile" style="display: none;">
+        <div id="zona-joystick"></div>
+        <div id="botoes-acao-mobile">
+            <button id="btn-interagir" class="btn-touch">✋ Interagir</button>
+            <button id="btn-pulo" class="btn-touch">⬆ Pular</button>
+            <button id="btn-lanterna" class="btn-touch">🔦 Lanterna</button>
+            <button id="btn-corrida" class="btn-touch">⚡ Correr</button>
+            <button id="btn-mochila-mobile" class="btn-touch">🎒 Mochila</button>
+            <button id="btn-girar-planta" class="btn-touch" style="display: none;">🔄 Girar</button>
+            <button id="btn-planta-mais-perto" class="btn-touch" style="display: none;">➖ Perto</button>
+            <button id="btn-planta-mais-longe" class="btn-touch" style="display: none;">➕ Longe</button>
+        </div>
+    </div>
+
+    <script src="script.js?v=15"></script>
+</body>
+</html>
+
+  
+
+</html>
