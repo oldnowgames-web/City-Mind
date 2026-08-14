@@ -403,8 +403,16 @@ const raycaster = new THREE.Raycaster();
 const vetorCentroTela = new THREE.Vector2(0, 0);
 const objetosRaycast = []; const objetosMundo = []; const zonasInteriores = []; const todasAsPortas = [];
 
+// Função nomeada (em vez de só um listener anônimo) pra poder ser reaproveitada
+// pelo botão de fullscreen que já existia (durante o jogo) E pelo novo botão
+// de fullscreen da tela inicial.
+function alternarFullscreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e => console.log(e));
+    else document.exitFullscreen();
+}
+
 if (btnFullscreen) {
-    btnFullscreen.addEventListener('click', () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e => console.log(e)); else document.exitFullscreen(); });
+    btnFullscreen.addEventListener('click', alternarFullscreen);
 }
 
 // --- ÁUDIO CONTROLES ---
@@ -477,6 +485,7 @@ const modalControles = document.getElementById('modal-controles');
 const btnIniciarJogo = document.getElementById('btn-iniciar-jogo');
 const btnRetomar = document.getElementById('btn-retomar');
 const btnReiniciar = document.getElementById('btn-reiniciar');
+const btnMenuMobile = document.getElementById('btn-menu-mobile');
 // CORREÇÃO: 'controlesMobileDiv' já tinha sido declarado lá em cima (linha ~44).
 // Essa segunda declaração 'const' duplicada travava o carregamento do script inteiro.
 
@@ -539,6 +548,26 @@ if (btnRetomar) {
 }
 
 if (btnReiniciar) { btnReiniciar.addEventListener('click', () => { window.location.reload(); }); }
+
+// NOVO: botão de menu do celular (topo central) — no PC, a tecla ESC abre o
+// menu de pausa; no touch não existe ESC, então esse botão faz a mesma coisa.
+// Reaproveita a mesma checagem do handler de 'unlock' do PC logo abaixo: só
+// abre pausa se nenhum outro painel (mochila/crafting/loja/tv) já estiver
+// aberto por cima.
+if (btnMenuMobile) {
+    btnMenuMobile.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (!jogoIniciado || jogoPausado) return;
+        if (typeof mochilaAberta !== 'undefined' && mochilaAberta) return;
+        if (typeof menuCraftingAberto !== 'undefined' && menuCraftingAberto) return;
+        if (typeof menuLojaAberto !== 'undefined' && menuLojaAberto) return;
+        if (typeof menuTVAberto !== 'undefined' && menuTVAberto) return;
+
+        jogoPausado = true;
+        if (menuPause) menuPause.style.display = 'flex';
+        if (typeof pararSonsDeMovimento === 'function') pararSonsDeMovimento();
+    }, { passive: false });
+}
 
 // --- CONTROLE DE POINTER LOCK E ESC (PC) ---
 if (typeof controles !== 'undefined' && controles) {
@@ -2288,11 +2317,17 @@ function atualizarAnimais(delta) {
     atualizarPoeira(delta);
 }
 
-if (!ehTouch) {
-    controles.getObject().position.set(0, obterAlturaTerreno(0, 0) + ALTURA_JOGADOR, 15);
-} else {
-    cameraContainer.position.set(0, obterAlturaTerreno(0, 0) + ALTURA_JOGADOR, 15);
-}
+// CORREÇÃO (colisão não funcionava em NADA no celular): antes, no modo touch,
+// o ponto de spawn era aplicado em "cameraContainer.position" — só que TODO o
+// resto do jogo (andar, colisão com árvore/pedra/parede) usa
+// "controles.getObject().position" (a câmera em si) pra saber onde o jogador
+// está, e isso é local ao "cameraContainer", que nunca mais muda depois disso.
+// Ou seja: a posição "oficial" do jogador (usada pra colisão) começava do
+// zero, sem o deslocamento do spawn, enquanto a posição desenhada na tela já
+// incluía esse deslocamento — as duas descolavam, e a colisão acabava sendo
+// checada num ponto do mapa diferente de onde o jogador via de verdade que
+// estava. Agora os dois casos fazem a mesma coisa.
+controles.getObject().position.set(0, obterAlturaTerreno(0, 0) + ALTURA_JOGADOR, 15);
 
 // --- SISTEMA AVANÇADO DE CONSTRUÇÃO DE CASAS ---
 function criarEscadaDeParede(grupoPai, x, y, z, altura) {
@@ -3918,11 +3953,16 @@ function iniciarJogoReflexo(container) {
 }
 
 // Retorna o objeto cuja ".position" representa a posição real do jogador no
-// mundo — muda dependendo se é celular (cameraContainer) ou PC (a própria
-// câmera, via PointerLockControls.getObject()). Ver comentários lá em cima
-// sobre a diferença entre os dois sistemas de câmera.
+// mundo. CORREÇÃO: antes, no celular, isso retornava "cameraContainer.position"
+// — que é fixo (só é definido uma vez, no spawn, e nunca mais muda). No PC e no
+// celular, quem realmente anda é sempre "controles.getObject().position" (a
+// câmera, via PointerLockControls — ver moveForward/moveRight no loop
+// principal), então é isso que precisa ser retornado nos dois casos. Sem essa
+// correção, qualquer coisa que dependesse desta função no celular (o som de
+// passos dos bichos tocar perto de você, o raio de entrada no carro) sempre
+// achava que o jogador estava parado no ponto de spawn, pra sempre.
 function obterAncoraCamera() {
-    return ehTouch ? cameraContainer.position : controles.getObject().position;
+    return controles.getObject().position;
 }
 
 // Entra no carro: o jogador passa a "ser" o carro (WASD dirige, câmera fica

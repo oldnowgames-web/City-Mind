@@ -391,12 +391,27 @@ body {
 #btn-fullscreen {
     position: absolute; top: 15px; right: 15px; background: rgba(0, 0, 0, 0.6);
     color: white; border: 1px solid white; padding: 10px 15px;
-    border-radius: 5px; font-size: 14px; font-weight: bold; cursor: pointer; z-index: 20;
+    border-radius: 5px; font-size: 14px; font-weight: bold; cursor: pointer;
+    /* CORREÇÃO: z-index era 20, MENOR que o das telas de overlay (start, pause
+       etc — 1000), então o botão ficava escondido atrás do fundo escurecido da
+       tela inicial (via só existia durante o jogo). Agora 1001 garante que ele
+       aparece por cima de qualquer tela, inclusive a inicial — sem precisar de
+       um botão duplicado só pra ela. */
+    z-index: 1001;
 }
 
 #controles-mobile { display: none; }
 #zona-joystick { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 15; }
 #botoes-acao-mobile { position: absolute; bottom: 20px; right: 15px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; z-index: 15; }
+
+/* Botão de menu (pausa) do celular: topo central, sempre visível durante o
+   jogo, acima do resto do HUD mas abaixo dos modais (overlay-tela é z-index
+   1000). Um pouco afastado do topo pra não ficar embaixo de notch/câmera. */
+#btn-menu-mobile { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 8px 18px; }
+/* .btn-touch:active troca o transform inteiro por "scale(0.94)" — sem isto
+   aqui, o botão perderia o "translateX(-50%)" nesse instante e pularia pra
+   fora do centro sempre que tocado. */
+#btn-menu-mobile:active { transform: translateX(-50%) scale(0.94); }
 
 .btn-touch {
     padding: 10px 14px;
@@ -417,7 +432,11 @@ body {
 .btn-touch:active { background: rgba(255, 255, 255, 0.3); transform: scale(0.94); }
 .btn-ativo { background: rgba(251, 191, 36, 0.6) !important; border-color: #fbbf24 !important; }
 
-#aviso-orientacao { display: none; position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #0f172a; color: white; z-index: 100; justify-content: center; align-items: center; text-align: center; font-size: 20px; padding: 20px; box-sizing: border-box; }
+#aviso-orientacao { display: none; position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #0f172a; color: white; z-index: 2000; justify-content: center; align-items: center; text-align: center; font-size: 20px; padding: 20px; box-sizing: border-box; }
+/* CORREÇÃO: antes o z-index era 100, MENOR que o das telas de overlay (start,
+   pause etc — 1000). Isso significava que, mesmo com o celular na vertical, o
+   aviso de "vire o celular" ficava por baixo da tela de start, então nunca
+   aparecia de verdade nela. Agora 2000 garante que ele cobre qualquer tela. */
 @media (orientation: portrait) { #aviso-orientacao { display: flex; } }
 
 /* =========================================================
