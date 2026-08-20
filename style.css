@@ -9,6 +9,14 @@ body {
     -webkit-user-select: none;
     touch-action: none;
     background-color: #000;
+    /* CORREÇÃO (mobile - joystick/HUD "pulando" de lugar): alguns menus com
+       rolagem interna (mesa de trabalho, loja, TV) podiam "vazar" o gesto de
+       arrastar pro documento por trás deles (scroll chaining), mesmo com
+       overflow:hidden aqui. Isso deslocava a página, e como os elementos do
+       HUD abaixo eram position:absolute (relativo ao documento, não à tela),
+       eles pareciam "mudar de lugar" depois de abrir/rolar um desses menus.
+       overscroll-behavior:none bloqueia esse vazamento na origem. */
+    overscroll-behavior: none;
 }
 
 #canvas-container { 
@@ -21,7 +29,7 @@ body {
 }
 
 #crosshair {
-    position: absolute; top: 50%; left: 50%; width: 8px; height: 8px;
+    position: fixed; top: 50%; left: 50%; width: 8px; height: 8px;
     border-radius: 50%; background: rgba(255, 255, 255, 0.7);
     transform: translate(-50%, -50%); pointer-events: none; z-index: 5;
 }
@@ -30,7 +38,7 @@ body {
    NOTIFICAÇÕES E PROGRESSO
    ========================================================= */
 #notificacao {
-    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
     background: rgba(0,0,0,0.8); color: white; padding: 12px 24px;
     border-radius: 5px; font-weight: bold; border-left: 5px solid #ef4444;
     display: none; z-index: 1100; transition: opacity 0.3s; pointer-events: none;
@@ -40,7 +48,7 @@ body {
 /* Fica no canto inferior esquerdo, mas um pouco acima do joystick do celular
    (que também mora nesse canto) pra não sobrepor os dois no mobile. */
 #dinheiro-hud {
-    position: absolute; bottom: 190px; left: 20px;
+    position: fixed; bottom: 190px; left: 20px;
     background: rgba(0,0,0,0.65); color: #4ade80; font-weight: 800;
     font-size: 1.05rem; padding: 9px 16px; border-radius: 8px;
     border: 2px solid #22c55e; z-index: 10; font-family: sans-serif;
@@ -48,14 +56,14 @@ body {
 }
 
 #prompt-interacao {
-    position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%);
+    position: fixed; top: 60%; left: 50%; transform: translate(-50%, -50%);
     color: #fbbf24; background: rgba(0, 0, 0, 0.7); padding: 10px 20px;
     border-radius: 5px; font-size: 16px; font-weight: bold;
     display: none; pointer-events: none; border: 1px solid #fbbf24; z-index: 5;
 }
 
 #barra-coleta-container {
-    position: absolute; top: 55%; left: 50%; transform: translate(-50%, -50%);
+    position: fixed; top: 55%; left: 50%; transform: translate(-50%, -50%);
     width: 150px; height: 12px; background: rgba(0,0,0,0.5);
     border: 2px solid white; border-radius: 6px; display: none; z-index: 5;
     overflow: hidden;
@@ -69,7 +77,7 @@ body {
    HUD: INVENTÁRIO
    ========================================================= */
 #inventario-hud {
-    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
     display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
     background: rgba(0,0,0,0.6); max-width: 96vw;
     padding: 8px; border-radius: 6px; border: 2px solid #374151; z-index: 10;
@@ -112,13 +120,22 @@ body {
    MENUS DO JOGO: CRAFTING E MOCHILA
    ========================================================= */
 #menu-crafting {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    /* CORREÇÃO (mobile: joystick/HUD mudava de lugar ao abrir a mesa de
+       trabalho): era position:absolute (relativo ao documento). Se o dedo
+       rolasse até o fim da lista aqui dentro e continuasse arrastando, o
+       scroll "vazava" pro documento (scroll chaining) e deslocava a página —
+       daí o joystick e o resto do HUD, também absolute, pareciam ter pulado
+       de lugar. Agora é fixed (relativo à tela, imune a esse deslocamento). */
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     background: linear-gradient(180deg, rgba(31,41,55,0.97), rgba(15,20,30,0.98));
     color: white; border-radius: 14px; border: 3px solid #fbbf24; display: none; z-index: 30;
     width: min(94vw, 640px); max-height: 88vh; overflow-y: auto; box-sizing: border-box;
     /* CORREÇÃO (mobile): o body tem touch-action:none pra travar o joystick/olhar,
        mas isso também bloqueava o dedo de rolar aqui dentro. Reabilita só a rolagem vertical. */
     touch-action: pan-y;
+    /* Trava o "vazamento" do gesto de rolagem pro documento por trás do menu
+       (ver comentário do position acima) na origem, além do position:fixed. */
+    overscroll-behavior: contain;
     box-shadow: 0 0 40px rgba(0,0,0,0.85), 0 0 0 1px rgba(251,191,36,0.15) inset;
 }
 
@@ -207,11 +224,14 @@ body {
    COMPUTADOR DE VENDAS (LOJA DE RECURSOS)
    ========================================================= */
 #menu-loja {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    /* CORREÇÃO (mobile): mesmo motivo do #menu-crafting — fixed + overscroll
+       contido evitam que o HUD "pule" de lugar ao abrir/rolar este menu. */
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     background: linear-gradient(180deg, rgba(31,41,55,0.97), rgba(15,20,30,0.98));
     color: white; border-radius: 14px; border: 3px solid #38bdf8; display: none; z-index: 30;
     width: min(94vw, 640px); max-height: 88vh; overflow-y: auto; box-sizing: border-box;
     touch-action: pan-y; /* CORREÇÃO (mobile): reabilita rolagem com o dedo dentro do menu */
+    overscroll-behavior: contain;
     box-shadow: 0 0 40px rgba(0,0,0,0.85), 0 0 0 1px rgba(56,189,248,0.15) inset;
 }
 
@@ -307,6 +327,7 @@ body {
 #loja-carrinho-lista {
     display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto;
     touch-action: pan-y; /* CORREÇÃO (mobile): reabilita rolagem com o dedo dentro da lista */
+    overscroll-behavior: contain;
     margin-bottom: 10px;
 }
 .carrinho-vazio { font-size: 0.82rem; color: #6b7280; font-style: italic; padding: 6px 2px; }
@@ -343,7 +364,7 @@ body {
 .loja-footer { text-align: center; font-size: 0.75rem; color: #9ca3af; padding: 12px 22px 18px; }
 
 #mochila-container {
-    position: absolute;
+    position: fixed;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
@@ -389,7 +410,7 @@ body {
    CONTROLES MOBILE E FULLSCREEN
    ========================================================= */
 #btn-fullscreen {
-    position: absolute; top: 15px; right: 15px; background: rgba(0, 0, 0, 0.6);
+    position: fixed; top: 15px; right: 15px; background: rgba(0, 0, 0, 0.6);
     color: white; border: 1px solid white; padding: 10px 15px;
     border-radius: 5px; font-size: 14px; font-weight: bold; cursor: pointer;
     /* CORREÇÃO: z-index era 20, MENOR que o das telas de overlay (start, pause
@@ -401,13 +422,16 @@ body {
 }
 
 #controles-mobile { display: none; }
-#zona-joystick { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 15; }
-#botoes-acao-mobile { position: absolute; bottom: 20px; right: 15px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; z-index: 15; }
+/* CORREÇÃO (mobile: joystick mudava de lugar): fixed em vez de absolute —
+   ver comentário completo em #menu-crafting sobre a causa raiz (scroll
+   chaining ao rolar um menu deslocando o documento). */
+#zona-joystick { position: fixed; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 15; }
+#botoes-acao-mobile { position: fixed; bottom: 20px; right: 15px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; z-index: 15; }
 
 /* Botão de menu (pausa) do celular: topo central, sempre visível durante o
    jogo, acima do resto do HUD mas abaixo dos modais (overlay-tela é z-index
    1000). Um pouco afastado do topo pra não ficar embaixo de notch/câmera. */
-#btn-menu-mobile { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 8px 18px; }
+#btn-menu-mobile { position: fixed; top: 15px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 8px 18px; }
 /* .btn-touch:active troca o transform inteiro por "scale(0.94)" — sem isto
    aqui, o botão perderia o "translateX(-50%)" nesse instante e pularia pra
    fora do centro sempre que tocado. */
@@ -432,7 +456,7 @@ body {
 .btn-touch:active { background: rgba(255, 255, 255, 0.3); transform: scale(0.94); }
 .btn-ativo { background: rgba(251, 191, 36, 0.6) !important; border-color: #fbbf24 !important; }
 
-#aviso-orientacao { display: none; position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #0f172a; color: white; z-index: 2000; justify-content: center; align-items: center; text-align: center; font-size: 20px; padding: 20px; box-sizing: border-box; }
+#aviso-orientacao { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #0f172a; color: white; z-index: 2000; justify-content: center; align-items: center; text-align: center; font-size: 20px; padding: 20px; box-sizing: border-box; }
 /* CORREÇÃO: antes o z-index era 100, MENOR que o das telas de overlay (start,
    pause etc — 1000). Isso significava que, mesmo com o celular na vertical, o
    aviso de "vire o celular" ficava por baixo da tela de start, então nunca
@@ -574,11 +598,13 @@ body {
 /* TELEVISÃO: menu de minigames (grade de cards) + área do jogo */
 /* ============================================================ */
 #menu-tv {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    /* CORREÇÃO (mobile): mesmo motivo do #menu-crafting. */
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     background: linear-gradient(180deg, rgba(20,22,28,0.97), rgba(10,11,15,0.98));
     color: white; border-radius: 14px; border: 3px solid #a855f7; display: none; z-index: 32;
     width: min(94vw, 760px); max-height: 88vh; overflow-y: auto; box-sizing: border-box;
     touch-action: pan-y; /* CORREÇÃO (mobile): reabilita rolagem com o dedo dentro do menu */
+    overscroll-behavior: contain;
     box-shadow: 0 0 40px rgba(0,0,0,0.85), 0 0 0 1px rgba(168,85,247,0.15) inset;
 }
 .tv-header {
@@ -619,7 +645,7 @@ body {
 }
 
 #menu-tv-jogo {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     background: #0b0d12; border-radius: 14px; border: 3px solid #a855f7; display: none;
     z-index: 33; width: min(96vw, 620px); box-sizing: border-box; overflow: hidden;
     box-shadow: 0 0 50px rgba(0,0,0,0.9);
@@ -641,6 +667,7 @@ body {
     padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 10px;
     max-height: 76vh; overflow-y: auto; box-sizing: border-box;
     touch-action: pan-y; /* CORREÇÃO (mobile): reabilita rolagem com o dedo dentro da área da TV */
+    overscroll-behavior: contain;
 }
 
 /* Elementos compartilhados entre os minigames */

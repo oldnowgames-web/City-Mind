@@ -18,6 +18,7 @@ const CAMINHO_QUADRO_IMAGEM = 'img/tumoritus.jpeg';
 let inventario = {
     madeira: 0,
     machado: 1,
+    pa: 1, // NOVO: ferramenta pra extrair areia de rios/lagos
     planta_p: 0,
     planta_m: 0,
     planta_g: 0,
@@ -44,7 +45,10 @@ let inventario = {
     planta_asfalto: 0,
     ferro: 0,
     cobre: 0,
-    ouro: 0
+    ouro: 0,
+    saco_areia: 0, // NOVO: extraído de rios/lagos com a pá
+    cimento: 0,    // NOVO: comprado na loja (dinheiro + pedra + ferro)
+    planta_concreto: 0 // NOVO: Casa de Concreto (1 andar, mesma largura da casa G, telhado igual ao dela)
 };
 
 // --- SISTEMA DE ECONOMIA (VENDA DE RECURSOS NO COMPUTADOR) ---
@@ -72,10 +76,11 @@ const PRODUTOS_LOJA = {
     carro: { nome: 'Carro', preco: 20000 },
     tv: { nome: 'Televisão', preco: 2000 },
     tapete: { nome: 'Tapete', preco: 100 },
-    asfalto: { nome: 'Piche de Asfalto (10 blocos)', preco: 300 }
+    asfalto: { nome: 'Piche de Asfalto (10 blocos)', preco: 300 },
+    cimento: { nome: 'Cimento (150 sacos)', preco: 1500 }
 };
 // Produtos que dão mais de 1 unidade por compra (todos os outros dão 1).
-const QUANTIDADE_POR_COMPRA = { asfalto: 10 };
+const QUANTIDADE_POR_COMPRA = { asfalto: 10, cimento: 150 };
 
 // ------------------------------------------------------------------
 // MINIGAMES DA TV — 5 jogos leves, 100% autocontidos (sem precisar de
@@ -119,6 +124,7 @@ let hotbar = new Array(LIMITE_HOTBAR).fill(null);
 const CONFIG_ITENS_HOTBAR = {
     machado: { icone: { tipo: 'emoji', valor: '🪓' } },
     picareta: { icone: { tipo: 'emoji', valor: '⛏️' } },
+    pa: { icone: { tipo: 'emoji', valor: '🪣' }, rotulo: 'Pá' },
     planta_p: { icone: { tipo: 'emoji', valor: '📜🏡' }, rotulo: 'P' },
     planta_m: { icone: { tipo: 'emoji', valor: '📜🏛️' }, rotulo: 'M' },
     planta_g: { icone: { tipo: 'emoji', valor: '📜🏰' }, rotulo: 'G' },
@@ -135,6 +141,7 @@ const CONFIG_ITENS_HOTBAR = {
     planta_carro: { icone: { tipo: 'emoji', valor: '🚗' }, rotulo: 'Carro' },
     planta_tv: { icone: { tipo: 'emoji', valor: '📺' }, rotulo: 'TV' },
     planta_torre: { icone: { tipo: 'emoji', valor: '🗼' } },
+    planta_concreto: { icone: { tipo: 'emoji', valor: '📜🧱' }, rotulo: 'C' },
     planta_banco: { icone: { tipo: 'emoji', valor: '🪑' } },
     planta_poste: { icone: { tipo: 'emoji', valor: '💡' } },
     planta_armario: { icone: { tipo: 'emoji', valor: '🗄️' } },
@@ -187,6 +194,14 @@ let itemAtivo = 'machado';
 
 let tempoSegurandoClique = 0, estaMinando = false, arvoreSendoCortada = null, rochaSendoMinerada = null;
 
+// NOVO: true quando o jogador está dentro d'água nesse frame (calculado no loop
+// de física, lido pelo sistema de extração de areia — ver mais abaixo).
+let jogadorEstaNaAgua = false;
+// Tempo acumulado segurando o clique/toque com a pá dentro d'água. Separado de
+// "tempoSegurandoClique" porque a extração de areia é CÍCLICA (dropa um saco a
+// cada 2s e continua, em vez de "completar uma vez e parar" como árvore/rocha).
+let tempoExtraindoAreia = 0;
+
 // CORREÇÃO (mobile): identifica qual dedo/toque começou a "minerar", pra poder
 // diferenciar de um toque que na verdade é só pra girar a câmera (olhar ao
 // redor). Ver uso completo perto do listener 'touchstart' de mineração.
@@ -213,8 +228,14 @@ const PASSO_DISTANCIA_COLOCACAO = 1.2;    // unidades por "clique" da roda do mo
 let construcoesColocadas = [];
 let construcaoOlhada = null, construcaoSendoDemolida = null;
 
-// Qual ferramenta demole qual tipo de construção (baseado no material que
-// predomina no custo de cada planta — ver botões de craft no index.html).
+// Material "predominante" de cada tipo de construção/item colocado (baseado
+// no custo de cada planta — ver botões de craft no index.html). Mantido só
+// como metadado (não bloqueia mais a demolição — ver função animar(): agora
+// QUALQUER ferramenta de mineração equipada — machado, picareta ou pá —
+// demole QUALQUER construção ou item colocado no mundo, inclusive carro e TV,
+// devolvendo a planta/item pro inventário. Antes, carro/tv eram marcados como
+// 'indestrutivel' pra não bater com nenhuma ferramenta; isso foi removido a
+// pedido, pra permitir demolir/reposicionar itens comprados também.
 const MATERIAL_POR_CONSTRUCAO = {
     p: 'madeira', m: 'madeira', g: 'madeira',
     cerca: 'madeira', mesa: 'madeira', cadeira: 'madeira',
@@ -222,17 +243,9 @@ const MATERIAL_POR_CONSTRUCAO = {
     muro: 'pedra', piso: 'pedra', fogueira: 'pedra', lareira: 'pedra',
     torre: 'madeira', banco: 'madeira', poste: 'pedra',
     armario: 'madeira', estante: 'madeira',
-    // 'indestrutivel' nunca bate com os materiais que machado/picareta demolem
-    // (madeira/pedra) — protege o carro (item caro, comprado com dinheiro) de
-    // ser destruído sem querer minerando perto dele.
-    carro: 'indestrutivel',
-    tv: 'indestrutivel',
-    // Tapete é barato ($100) e comprado no computador — ao contrário de
-    // carro/tv, faz sentido poder demoli-lo (machado) se o jogador quiser
-    // reposicionar ou trocar de cor.
+    carro: 'metal',
+    tv: 'metal',
     tapete: 'madeira',
-    // Asfalto também é barato e comprado em quantidade — demolível com a
-    // picareta, igual muro/piso (é basicamente pedra/piche compactado).
     asfalto: 'pedra'
 };
 
@@ -298,7 +311,7 @@ const cena = new THREE.Scene();
 const corDia = new THREE.Color(0xa0c4ff), corNoite = new THREE.Color(0x050510), corOcaso = new THREE.Color(0xd97706);
 cena.background = corDia.clone(); cena.fog = new THREE.FogExp2(0xa0c4ff, 0.006);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.2, 400);
 const cameraContainer = new THREE.Group(); cena.add(cameraContainer); cameraContainer.add(camera);
 
 // CORREÇÃO: a variável 'controles' (PointerLockControls) era usada em várias partes do
@@ -310,7 +323,7 @@ let controles = new THREE.PointerLockControls(camera, document.body);
 // bem mais fraca que um PC. 'ehTouch' é reaproveitado no resto do arquivo.
 let ehTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
-const renderizador = new THREE.WebGLRenderer({ antialias: !ehTouch });
+const renderizador = new THREE.WebGLRenderer({ antialias: !ehTouch, logarithmicDepthBuffer: true });
 renderizador.setSize(window.innerWidth, window.innerHeight);
 renderizador.shadowMap.enabled = true;
 renderizador.shadowMap.type = ehTouch ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
@@ -841,8 +854,12 @@ window.addEventListener('mousedown', (e) => {
     // 1. Trocamos o 'instrucoes' por '!jogoIniciado'
     if (menuCraftingAberto || menuLojaAberto || menuTVAberto || !jogoIniciado || dirigindoCarro) return;
     if (modoConstrucaoAtivo) { executarConstrucaoReal(); }
-    // 2. Adicionamos parênteses em volta das ferramentas para evitar conflito de lógica
-    else if ((itemAtivo === 'machado' || itemAtivo === 'picareta') && e.button === 0) {
+    // CORREÇÃO: segurar o clique agora inicia a "mineração/demolição" com
+    // QUALQUER item equipado, não só machado/picareta/pá — cortar árvore e
+    // minerar rocha continuam exigindo a ferramenta certa (checado mais
+    // abaixo, dentro de animar()); só a demolição de construções/itens
+    // colocados passou a valer pra qualquer item na mão.
+    else if (e.button === 0) {
         estaMinando = true; tempoSegurandoClique = 0;
     }
 });
@@ -858,14 +875,20 @@ window.addEventListener('touchstart', (e) => {
     if (menuCraftingAberto || menuLojaAberto || menuTVAberto || !jogoIniciado || dirigindoCarro) return;
     const joystickZone = document.getElementById('zona-joystick');
     if (e.target.tagName === 'BUTTON' || (joystickZone && joystickZone.contains(e.target))) return;
+    // Segurando uma planta pra construir, o toque é só pra olhar ao redor —
+    // colocar é só pelo botão [Interagir], igual antes desta correção.
+    if (modoConstrucaoAtivo) return;
 
-    if (itemAtivo === 'machado' || itemAtivo === 'picareta') {
+    // CORREÇÃO: mesmo esquema do mousedown acima — qualquer item equipado
+    // agora inicia o "segurar" (usado pra demolir construções/itens
+    // colocados); cortar/minerar continuam exigindo machado/picareta.
+    {
         // CORREÇÃO (mobile): esse mesmo toque pode ser o dedo que o jogador vai
         // arrastar só pra olhar ao redor (sistema "touchOlharId" mais abaixo).
         // Por isso não confirmamos a mineração de cara: guardamos o toque e a
         // posição inicial, e só cancelamos no touchmove/touchend se o dedo se
         // mover além do limiar (sinal de que era um gesto de câmera, não de
-        // minerar/cortar parado no lugar).
+        // minerar/cortar/demolir parado no lugar).
         const toque = e.changedTouches[0];
         touchMineracaoId = toque.identifier;
         touchMineracaoStartX = toque.clientX;
@@ -1002,8 +1025,13 @@ function processarInteracaoGeral() {
         }
     }
 }
-window.craftarConstrucao = function (tipo, custoMadeira, custoPedra = 0) {
-    if (inventario.madeira >= custoMadeira && inventario.pedra >= custoPedra) {
+// NOVO: parâmetros extras opcionais (custoFerro/custoSacoAreia/custoCimento)
+// pra receitas que precisam de mais que madeira/pedra — hoje só o "Prédio"
+// usa isso, mas fica pronto pra qualquer receita futura também usar.
+window.craftarConstrucao = function (tipo, custoMadeira, custoPedra = 0, custoFerro = 0, custoSacoAreia = 0, custoCimento = 0) {
+    if (inventario.madeira >= custoMadeira && inventario.pedra >= custoPedra &&
+        (inventario.ferro || 0) >= custoFerro && (inventario.saco_areia || 0) >= custoSacoAreia &&
+        (inventario.cimento || 0) >= custoCimento) {
         const chaveItem = 'planta_' + tipo;
 
         // CORREÇÃO: antes o item era criado (e a madeira/pedra gasta) mesmo
@@ -1018,12 +1046,22 @@ window.craftarConstrucao = function (tipo, custoMadeira, custoPedra = 0) {
 
         inventario.madeira -= custoMadeira;
         inventario.pedra -= custoPedra;
+        inventario.ferro = (inventario.ferro || 0) - custoFerro;
+        inventario.saco_areia = (inventario.saco_areia || 0) - custoSacoAreia;
+        inventario.cimento = (inventario.cimento || 0) - custoCimento;
 
         const txtMadeira = document.getElementById('txt-qtd-madeira');
         if (txtMadeira) txtMadeira.innerText = inventario.madeira;
 
         const txtPedra = document.getElementById('txt-qtd-pedra');
         if (txtPedra) txtPedra.innerText = inventario.pedra;
+
+        const txtFerro = document.getElementById('txt-qtd-ferro');
+        if (txtFerro) txtFerro.innerText = inventario.ferro;
+        const txtAreia = document.getElementById('txt-qtd-saco-areia');
+        if (txtAreia) txtAreia.innerText = inventario.saco_areia;
+        const txtCimento = document.getElementById('txt-qtd-cimento');
+        if (txtCimento) txtCimento.innerText = inventario.cimento;
 
         if (tipo === 'p') inventario.planta_p++;
         if (tipo === 'm') inventario.planta_m++;
@@ -1043,6 +1081,7 @@ window.craftarConstrucao = function (tipo, custoMadeira, custoPedra = 0) {
         if (tipo === 'poste') inventario.planta_poste++;
         if (tipo === 'armario') inventario.planta_armario++;
         if (tipo === 'estante') inventario.planta_estante++;
+        if (tipo === 'concreto') inventario.planta_concreto++;
 
         atualizarUIAktiv();
         atualizarEstadoCraftingUI();
@@ -1059,6 +1098,15 @@ window.craftarConstrucao = function (tipo, custoMadeira, custoPedra = 0) {
 // Atualiza o saldo mostrado no topo do menu e marca com opacidade reduzida
 // (+ botão desabilitado) qualquer card cujo custo o jogador não pode pagar
 // no momento. É chamado toda vez que a mesa é aberta e após cada crafting.
+// NOVO: recursos extras (além de madeira/pedra) que um card pode custar.
+// datasetKey é o nome do atributo "data-custo-*" no HTML (em camelCase,
+// como o navegador expõe); invKey é a chave correspondente em `inventario`.
+const RECURSOS_CRAFTING_EXTRA = [
+    { datasetKey: 'custoFerro', invKey: 'ferro', recurso: 'ferro' },
+    { datasetKey: 'custoSacoAreia', invKey: 'saco_areia', recurso: 'saco_areia' },
+    { datasetKey: 'custoCimento', invKey: 'cimento', recurso: 'cimento' }
+];
+
 function atualizarEstadoCraftingUI() {
     const elSaldoMadeira = document.getElementById('craft-saldo-madeira');
     const elSaldoPedra = document.getElementById('craft-saldo-pedra');
@@ -1070,7 +1118,20 @@ function atualizarEstadoCraftingUI() {
         const custoPedra = parseInt(card.dataset.custoPedra || '0', 10);
         const faltaMadeira = inventario.madeira < custoMadeira;
         const faltaPedra = inventario.pedra < custoPedra;
-        const podeFazer = !faltaMadeira && !faltaPedra;
+
+        // Além de madeira/pedra, checa qualquer recurso extra que o card tenha
+        // declarado via data-custo-ferro / data-custo-saco-areia / data-custo-cimento.
+        const faltaPorRecurso = { madeira: faltaMadeira, pedra: faltaPedra };
+        let faltaAlgumExtra = false;
+        RECURSOS_CRAFTING_EXTRA.forEach(({ datasetKey, invKey, recurso }) => {
+            if (!(datasetKey in card.dataset)) return;
+            const custo = parseInt(card.dataset[datasetKey] || '0', 10);
+            const falta = (inventario[invKey] || 0) < custo;
+            faltaPorRecurso[recurso] = falta;
+            if (falta) faltaAlgumExtra = true;
+        });
+
+        const podeFazer = !faltaMadeira && !faltaPedra && !faltaAlgumExtra;
 
         card.classList.toggle('indisponivel', !podeFazer);
 
@@ -1079,8 +1140,7 @@ function atualizarEstadoCraftingUI() {
 
         card.querySelectorAll('.custo-chip').forEach(chip => {
             const recurso = chip.dataset.recurso;
-            const faltaEsse = recurso === 'madeira' ? faltaMadeira : faltaPedra;
-            chip.classList.toggle('falta', faltaEsse);
+            chip.classList.toggle('falta', !!faltaPorRecurso[recurso]);
         });
     });
 }
@@ -1194,8 +1254,33 @@ function gerarTexturaAsfalto() {
     textura.repeat.set(3, 3); // repete algumas vezes dentro de cada bloco de 4x4 pra o grão ficar bem miudinho
     return textura;
 }
-const texturaGrama = gerarTexturaGrama(), texturaTronco = gerarTexturaTronco(), texturaAgua = gerarTexturaAgua(), texturaAsfalto = gerarTexturaAsfalto();
+// Textura de concreto: cinza levemente irregular (manchas sutis mais claras/
+// escuras) e umas poucas rachaduras finas, pra não ficar uma cor chapada nas
+// paredes da Casa de Concreto.
+function gerarTexturaConcreto() {
+    const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#9a9a95'; ctx.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 14000; i++) {
+        const t = 125 + Math.random() * 55 | 0;
+        ctx.fillStyle = `rgba(${t},${t},${t - 3},0.2)`;
+        ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+    }
+    for (let i = 0; i < 4; i++) {
+        ctx.strokeStyle = 'rgba(55,55,52,0.3)'; ctx.lineWidth = 1;
+        let x = Math.random() * 512, y = Math.random() * 512;
+        ctx.beginPath(); ctx.moveTo(x, y);
+        for (let s = 0; s < 5; s++) { x += (Math.random() - 0.5) * 80; y += (Math.random() - 0.5) * 80; ctx.lineTo(x, y); }
+        ctx.stroke();
+    }
+    const textura = new THREE.CanvasTexture(canvas);
+    textura.wrapS = THREE.RepeatWrapping; textura.wrapT = THREE.RepeatWrapping;
+    textura.repeat.set(2, 2);
+    return textura;
+}
+const texturaGrama = gerarTexturaGrama(), texturaTronco = gerarTexturaTronco(), texturaAgua = gerarTexturaAgua(), texturaAsfalto = gerarTexturaAsfalto(), texturaConcreto = gerarTexturaConcreto();
 const matTroncoGlobal = new THREE.MeshStandardMaterial({ map: texturaTronco, roughness: 0.85 });
+const matConcretoGlobal = new THREE.MeshStandardMaterial({ map: texturaConcreto, roughness: 0.9 });
 const matPisoGlobal = new THREE.MeshStandardMaterial({ color: 0x4a2e1b, roughness: 0.9 });
 const matTelhadoCabana = new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.9 });
 const matVidroGlobal = new THREE.MeshStandardMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.5, roughness: 0.1, metalness: 0.8 });
@@ -1249,6 +1334,58 @@ function obterAlturaTerreno(x, z) {
     const h = hTopo + (hBase - hTopo) * fracZ;
 
     return h < NIVEL_DA_AGUA ? NIVEL_DA_AGUA : h;
+}
+
+// NOVO: extraída da antiga cópia colada dentro do loop de física (e do trecho
+// duplicado que rodava de novo depois de colidir com uma parede). Calcula a
+// altura do chão numa posição (x,z) já levando em conta pontes, casas de 1
+// andar e casas de vários andares — não só o terreno cru.
+//
+// CORREÇÃO CRÍTICA (tremor no canto + queda no andar de cima perto da
+// parede): antes, quando o jogador batia numa parede, o código recalculava
+// "alturaPisoAtual" chamando só obterAlturaTerreno(x, z) — ou seja, ignorava
+// completamente que o jogador podia estar dentro de uma zona de interior
+// (ex: 2º andar de uma casa). Isso fazia a altura do "chão" cair de repente
+// pro nível do terreno lá embaixo (~0) sempre que o jogador encostava numa
+// parede, e como isso acontece a cada frame que ele fica encostado, o Y
+// ficava alternando entre a altura certa (quando não está colidindo) e a
+// altura errada do terreno (quando está colidindo) — daí o tremor nos cantos
+// e, no andar de cima, a "queda" (a física de gravidade simplesmente não
+// tinha mais nenhum chão ali embaixo pra segurar o jogador).
+function calcularAlturaChaoComZonas(x, z, playerY) {
+    let altura = obterAlturaTerreno(x, z);
+    for (let zona of zonasInteriores) {
+        if (zona.tipo === 'ponte') {
+            if (x >= zona.minX && x <= zona.maxX) {
+                if (z >= zona.corpoMinZ && z <= zona.corpoMaxZ) { altura = zona.yBase; }
+                else if (z >= (zona.corpoMinZ - zona.escadaL) && z < zona.corpoMinZ) {
+                    let fatorInterp = (z - (zona.corpoMinZ - zona.escadaL)) / zona.escadaL;
+                    altura = THREE.MathUtils.lerp(obterAlturaTerreno(x, z), zona.yBase, fatorInterp);
+                }
+                else if (z > zona.corpoMaxZ && z <= (zona.corpoMaxZ + zona.escadaL)) {
+                    let fatorInterp = ((zona.corpoMaxZ + zona.escadaL) - z) / zona.escadaL;
+                    altura = THREE.MathUtils.lerp(obterAlturaTerreno(x, z), zona.yBase, fatorInterp);
+                }
+            }
+        }
+        else if (zona.tipo === 'casa') {
+            if (Math.abs(x - zona.x) < zona.w / 2 && Math.abs(z - zona.z) < zona.d / 2) {
+                altura = zona.pisos[0];
+            }
+        }
+        else if (zona.tipo === 'casa_andares') {
+            let dx = x - zona.x, dz = z - zona.z;
+            vetorColisaoAux.set(dx, 0, dz);
+            vetorColisaoAux.applyAxisAngle(eixoY, -zona.rot);
+
+            if (Math.abs(vetorColisaoAux.x) < zona.w / 2 && Math.abs(vetorColisaoAux.z) < zona.d / 2) {
+                let pisoAlvo = zona.pisos[0];
+                for (let p of zona.pisos) { if (playerY - ALTURA_JOGADOR + 1.0 > p) pisoAlvo = p; }
+                altura = pisoAlvo;
+            }
+        }
+    }
+    return altura;
 }
 
 // Ponte
@@ -2374,6 +2511,7 @@ const DIMENSOES_CONSTRUCAO = {
     asfalto: { largura: 4.0, profundidade: 4.0, altura: 0.08 },
     // Novas construções
     torre: { largura: 5.6, profundidade: 5.6, altura: 19.6 },
+    concreto: { largura: 14, profundidade: 6, altura: 4 },
     banco: { largura: 1.2, profundidade: 0.5, altura: 0.5 },
     poste: { largura: 0.5, profundidade: 0.5, altura: 3.2 },
     armario: { largura: 1.0, profundidade: 0.5, altura: 1.8 },
@@ -2382,7 +2520,7 @@ const DIMENSOES_CONSTRUCAO = {
 function obterDimensoes(tipo) { return DIMENSOES_CONSTRUCAO[tipo] || DIMENSOES_CONSTRUCAO.p; }
 
 // Tipos que ganham o indicador amarelo de porta no holograma (só as casas)
-const TIPOS_COM_PORTA = ['p', 'm', 'g'];
+const TIPOS_COM_PORTA = ['p', 'm', 'g', 'concreto'];
 // Tipos que encaixam numa grade de 2 em 2 (fáceis de alinhar em fileira/lado a lado)
 const TIPOS_GRID_DUPLO = ['piso', 'tocha', 'cama', 'cerca', 'muro'];
 
@@ -2435,21 +2573,21 @@ window.addEventListener('wheel', (e) => {
 
 function construirCasaDetalhada(tipo, posX, posY, posZ, rotacaoY) {
     const casa = new THREE.Group();
-    const eGrossa = 0.3, w = (tipo === 'g') ? 14 : 7, d = 6, andares = (tipo === 'p') ? 1 : 2;
+    const eGrossa = 0.3, w = (tipo === 'g' || tipo === 'concreto') ? 14 : 7, d = 6, andares = (tipo === 'p' || tipo === 'concreto') ? 1 : 2;
     let andaresLista = [posY + 0.5];
     if (andares === 2) andaresLista.push(posY + 4.5);
 
-    function adicionarParedeComJanela(larguraTotal, alturaTotal, prof, px, py, pz, rotY, jLarg, jAlt) {
+    function adicionarParedeComJanela(larguraTotal, alturaTotal, prof, px, py, pz, rotY, jLarg, jAlt, matParede = matTroncoGlobal) {
         const grp = new THREE.Group();
         const altBaixo = (alturaTotal - jAlt) / 2, largLado = (larguraTotal - jLarg) / 2;
 
-        const pBx = new THREE.Mesh(new THREE.BoxGeometry(larguraTotal, altBaixo, prof), matTroncoGlobal);
+        const pBx = new THREE.Mesh(new THREE.BoxGeometry(larguraTotal, altBaixo, prof), matParede);
         pBx.position.set(0, -alturaTotal / 2 + altBaixo / 2, 0); pBx.castShadow = true; grp.add(pBx);
-        const pCm = new THREE.Mesh(new THREE.BoxGeometry(larguraTotal, altBaixo, prof), matTroncoGlobal);
+        const pCm = new THREE.Mesh(new THREE.BoxGeometry(larguraTotal, altBaixo, prof), matParede);
         pCm.position.set(0, alturaTotal / 2 - altBaixo / 2, 0); pCm.castShadow = true; grp.add(pCm);
-        const pEq = new THREE.Mesh(new THREE.BoxGeometry(largLado, jAlt, prof), matTroncoGlobal);
+        const pEq = new THREE.Mesh(new THREE.BoxGeometry(largLado, jAlt, prof), matParede);
         pEq.position.set(-larguraTotal / 2 + largLado / 2, 0, 0); pEq.castShadow = true; grp.add(pEq);
-        const pDr = new THREE.Mesh(new THREE.BoxGeometry(largLado, jAlt, prof), matTroncoGlobal);
+        const pDr = new THREE.Mesh(new THREE.BoxGeometry(largLado, jAlt, prof), matParede);
         pDr.position.set(larguraTotal / 2 - largLado / 2, 0, 0); pDr.castShadow = true; grp.add(pDr);
 
         const vetro = new THREE.Mesh(new THREE.BoxGeometry(jLarg, jAlt, prof * 0.4), matVidroGlobal);
@@ -2566,6 +2704,63 @@ function construirCasaDetalhada(tipo, posX, posY, posZ, rotacaoY) {
         // parede sem transição.
         const fascia = new THREE.Mesh(new THREE.BoxGeometry(15.4, 0.16, 7.4), matAcabamentoEscuro);
         fascia.position.set(0, 7.92, 0); fascia.castShadow = true; casa.add(fascia);
+
+    } else if (tipo === 'concreto') {
+        // Casa de Concreto: 1 andar só, mesma largura da casa G (14), com
+        // janelas nas duas laterais, uma nos fundos, e duas na frente (uma de
+        // cada lado da porta) — diferente da G, que não tem janela lateral.
+        // Paredes em concreto (matConcretoGlobal) e telhado igual ao da G.
+        const hTotalMuros = 4; // 1 andar
+
+        const piso = new THREE.Mesh(new THREE.BoxGeometry(w, 0.4, d), matPisoGlobal);
+        piso.position.y = 0.2; piso.receiveShadow = true; casa.add(piso);
+        objetosRaycast.push(piso);
+
+        // Laterais com janela
+        adicionarParedeComJanela(d, hTotalMuros, eGrossa, -w / 2 + eGrossa / 2, hTotalMuros / 2, 0, Math.PI / 2, 2.2, 1.8, matConcretoGlobal);
+        adicionarParedeComJanela(d, hTotalMuros, eGrossa, w / 2 - eGrossa / 2, hTotalMuros / 2, 0, Math.PI / 2, 2.2, 1.8, matConcretoGlobal);
+
+        // Fundos com janela (única, centralizada)
+        adicionarParedeComJanela(w, hTotalMuros, eGrossa, 0, hTotalMuros / 2, -d / 2 + eGrossa / 2, 0, 4, 1.8, matConcretoGlobal);
+
+        // Frente: um segmento com janela de cada lado da porta
+        const largSegFrente = (w / 2) - 0.75;
+        adicionarParedeComJanela(largSegFrente, hTotalMuros, eGrossa, -w / 4 - 0.375, hTotalMuros / 2, d / 2 - eGrossa / 2, 0, 2.5, 1.8, matConcretoGlobal);
+        adicionarParedeComJanela(largSegFrente, hTotalMuros, eGrossa, w / 4 + 0.375, hTotalMuros / 2, d / 2 - eGrossa / 2, 0, 2.5, 1.8, matConcretoGlobal);
+
+        const vPorta = new THREE.Mesh(new THREE.BoxGeometry(1.5, hTotalMuros - 2.8, eGrossa), matConcretoGlobal);
+        vPorta.position.set(0, 2.8 + (hTotalMuros - 2.8) / 2, d / 2 - eGrossa / 2); casa.add(vPorta);
+
+        portaCriada = gerarPorta(-0.75, 0.2, d / 2 - eGrossa / 2, casa);
+
+        // Moldura da porta (topo + laterais, sem base porque encosta no chão)
+        const zPortaFrente = d / 2 - eGrossa / 2;
+        const molPortaTopo = new THREE.Mesh(new THREE.BoxGeometry(1.5 + 0.36, 0.12, eGrossa * 0.7), matAcabamentoEscuro);
+        molPortaTopo.position.set(0, hTotalMuros + 0.06, zPortaFrente); casa.add(molPortaTopo);
+        const molPortaLadoE = new THREE.Mesh(new THREE.BoxGeometry(0.12, hTotalMuros + 0.12, eGrossa * 0.7), matAcabamentoEscuro);
+        molPortaLadoE.position.set(-0.81, hTotalMuros / 2 + 0.06, zPortaFrente); casa.add(molPortaLadoE);
+        const molPortaLadoD = molPortaLadoE.clone(); molPortaLadoD.position.x = 0.81; casa.add(molPortaLadoD);
+
+        adicionarVigasCanto(w / 2, d / 2, hTotalMuros, hTotalMuros / 2);
+
+        // Telhado de madeira — mesma geometria (gável) usada na casa G, só
+        // reposicionado pra sentar em cima de 1 andar (4) em vez de 2 (8).
+        const geoTelhado = new THREE.BoxGeometry(15, 3, 7);
+        const posT = geoTelhado.attributes.position;
+        for (let i = 0; i < posT.count; i++) {
+            if (posT.getY(i) > 0) {
+                let px = posT.getX(i);
+                if (px > 0) posT.setX(i, px - 3.5);
+                if (px < 0) posT.setX(i, px + 3.5);
+                if (posT.getZ(i) !== undefined) posT.setZ(i, 0);
+            }
+        }
+        geoTelhado.computeVertexNormals();
+        const telhado = new THREE.Mesh(geoTelhado, matTelhadoCabana);
+        telhado.position.set(0, hTotalMuros + 1.5, 0); telhado.castShadow = true; casa.add(telhado);
+
+        const fascia = new THREE.Mesh(new THREE.BoxGeometry(15.4, 0.16, 7.4), matAcabamentoEscuro);
+        fascia.position.set(0, hTotalMuros - 0.08, 0); fascia.castShadow = true; casa.add(fascia);
 
     } else {
         const hTotalMuros = 4 * andares;
@@ -4187,6 +4382,28 @@ window.comprarProduto = function (tipo) {
     const produto = PRODUTOS_LOJA[tipo];
     if (!produto) return;
 
+    // Cimento é diferente dos outros produtos da loja: não vira uma "planta_"
+    // equipável/colocável no mundo, e sim um recurso puro no inventário (igual
+    // pedra/ferro).
+    if (tipo === 'cimento') {
+        if (dinheiroJogador < produto.preco) {
+            mostrarNotificacao('Dinheiro insuficiente! Você precisa de ' + formatarDinheiro(produto.preco) + '.', '#ef4444');
+            return;
+        }
+
+        dinheiroJogador -= produto.preco;
+        inventario.cimento = (inventario.cimento || 0) + (QUANTIDADE_POR_COMPRA.cimento || 1);
+
+        const txtCimento = document.getElementById('txt-qtd-cimento');
+        if (txtCimento) txtCimento.innerText = inventario.cimento;
+
+        atualizarDinheiroUI();
+        atualizarUILoja();
+        atualizarEstadoCraftingUI();
+        mostrarNotificacao('🧱 ' + produto.nome + ' comprado! (+' + (QUANTIDADE_POR_COMPRA.cimento || 1) + ' sacos)', '#22c55e');
+        return;
+    }
+
     if (dinheiroJogador < produto.preco) {
         mostrarNotificacao('Dinheiro insuficiente! Você precisa de ' + formatarDinheiro(produto.preco) + '.', '#ef4444');
         return;
@@ -4219,7 +4436,10 @@ function atualizarUICompras() {
     Object.keys(PRODUTOS_LOJA).forEach(tipo => {
         const produto = PRODUTOS_LOJA[tipo];
         const elPossui = document.getElementById('loja-possui-' + tipo);
-        if (elPossui) elPossui.innerText = inventario['planta_' + tipo] || 0;
+        // Cimento fica direto em inventario.cimento (recurso), não em
+        // inventario.planta_cimento (que não existe) — os outros produtos
+        // continuam usando 'planta_<tipo>' como antes.
+        if (elPossui) elPossui.innerText = tipo === 'cimento' ? (inventario.cimento || 0) : (inventario['planta_' + tipo] || 0);
 
         const semDinheiro = dinheiroJogador < produto.preco;
         const elItem = document.getElementById('loja-produto-' + tipo);
@@ -4531,9 +4751,11 @@ function removerConstrucaoDoMundo(registro) {
     if (iRegistro > -1) construcoesColocadas.splice(iRegistro, 1);
 }
 
-// Demole uma construção (registrada em executarConstrucaoReal): tira tudo o
-// que ela criou do mundo/listas auxiliares e devolve 1 planta pro inventário
-// — o inverso exato do que foi gasto para colocá-la.
+// Demole/remove uma construção OU item comprado (registrado em
+// executarConstrucaoReal): tira tudo o que ela criou do mundo/listas
+// auxiliares e devolve 1 planta/item pro inventário — o inverso exato do que
+// foi gasto (craftado ou comprado) para colocá-la. Funciona igual pra casas,
+// móveis, carro, TV, tapete etc. — tudo que existe como "planta_<tipo>".
 function demolirConstrucao(registro) {
     removerConstrucaoDoMundo(registro);
 
@@ -4541,14 +4763,15 @@ function demolirConstrucao(registro) {
     atualizarUIAktiv();
 
     // O item devolvido é sempre de um tipo que já tinha espaço reservado na
-    // hotbar (ele só existe porque já foi craftado antes), então nunca causa
-    // estouro do limite de 10. Ainda assim, se os 10 espaços já estiverem
-    // todos ocupados por outros tipos, avisa o jogador que o inventário
-    // continua cheio (ele não vai conseguer craftar nenhum tipo novo).
+    // hotbar (ele só existe porque já foi craftado/comprado antes), então
+    // nunca causa estouro do limite de 10. Ainda assim, se os 10 espaços já
+    // estiverem todos ocupados por outros tipos, avisa o jogador que o
+    // inventário continua cheio (ele não vai conseguer craftar/equipar
+    // nenhum tipo novo).
     if (hotbar.indexOf(null) === -1) {
-        mostrarNotificacao('Construção demolida! Item devolvido ao inventário. Atenção: inventário cheio (10/10 tipos).', '#f59e0b');
+        mostrarNotificacao('Item removido e devolvido ao inventário! Atenção: inventário cheio (10/10 tipos).', '#f59e0b');
     } else {
-        mostrarNotificacao('Construção demolida! Item devolvido ao inventário.', '#22c55e');
+        mostrarNotificacao('Item removido e devolvido ao inventário!', '#22c55e');
     }
 }
 
@@ -4607,6 +4830,7 @@ function animar() {
                 if (cur.userData && cur.userData.dadosTV) { achouObjetoPerto = true; promptTexto = "Pressione E para Ligar a TV"; break; }
                 if (cur.userData && cur.userData.ePorta) { achouObjetoPerto = true; promptTexto = "Pressione E para abrir/fechar a Porta"; break; }
                 if (cur.userData && cur.userData.eFarol) { achouObjetoPerto = true; promptTexto = "Pressione E para ligar/desligar o Farol"; break; }
+                if (cur.userData && cur.userData.eElevador) { achouObjetoPerto = true; promptTexto = "Pressione E para chamar o Elevador"; break; }
                 if (cur.userData && cur.userData.dadosArvore) { arvoreOlhada = cur.userData.dadosArvore; break; }
                 if (cur.userData && cur.userData.dadosRocha) { rochaOlhada = cur.userData.dadosRocha; break; }
                 if (cur.userData && cur.userData.construcaoInfo) { construcaoOlhada = cur.userData.construcaoInfo; break; }
@@ -4693,10 +4917,36 @@ function animar() {
             estaMinando = false; tempoSegurandoClique = 0; rochaSendoMinerada = null; if (barraProgressoContainer) barraProgressoContainer.style.display = 'none';
         }
     }
-    // Demolição de construções: machado derruba as de madeira, picareta as de pedra.
-    else if (construcaoOlhada && estaMinando &&
-        ((construcaoOlhada.material === 'madeira' && itemAtivo === 'machado') ||
-            (construcaoOlhada.material === 'pedra' && itemAtivo === 'picareta'))) {
+    // NOVO: Extração de Areia — pá equipada + jogador dentro d'água (rio/lago).
+    // Diferente de árvore/rocha (que "acabam" e param), isso é CÍCLICO: solta 1
+    // saco a cada 2s e continua soltando enquanto o jogador ficar segurando o
+    // clique/toque dentro d'água. Não precisa mirar em nada (sem raycast de alvo).
+    else if (itemAtivo === 'pa' && estaMinando && jogadorEstaNaAgua) {
+        tempoExtraindoAreia += delta;
+        if (barraProgressoContainer && barraProgressoContainer.style.display !== 'block') barraProgressoContainer.style.display = 'block';
+        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoExtraindoAreia / 2.0 * 100)) + '%';
+
+        if (tempoExtraindoAreia >= 2.0) {
+            inventario.saco_areia = (inventario.saco_areia || 0) + 1;
+            const txtAreia = document.getElementById('txt-qtd-saco-areia');
+            if (txtAreia) txtAreia.innerText = inventario.saco_areia;
+            mostrarNotificacao('+1 Saco de Areia', '#38bdf8');
+            tempoExtraindoAreia = 0; // não zera "estaMinando": continua enquanto o dedo/clique estiver segurado
+        }
+    }
+    // Se o jogador sair da água, trocar de ferramenta ou soltar o clique, o
+    // progresso acumulado de areia não deve "sobrar" pra próxima vez que entrar
+    // na água com outra ferramenta.
+    else if (tempoExtraindoAreia > 0 && (!estaMinando || itemAtivo !== 'pa' || !jogadorEstaNaAgua)) {
+        tempoExtraindoAreia = 0;
+        if (barraProgressoContainer) barraProgressoContainer.style.display = 'none';
+    }
+    // Demolição de construções e itens colocados: funciona com QUALQUER item
+    // equipado (ferramenta, recurso, o que estiver na mão) — não precisa mais
+    // ter machado/picareta/pá equipados. Isso vale pra qualquer construção e
+    // também pra carro, TV e outros itens comprados — todos podem ser
+    // demolidos e devolvidos ao inventário.
+    else if (construcaoOlhada && estaMinando) {
         if (construcaoSendoDemolida !== construcaoOlhada) { construcaoSendoDemolida = construcaoOlhada; tempoSegurandoClique = 0; }
         tempoSegurandoClique += delta;
         const TEMPO_DEMOLICAO = 2.5;
@@ -4879,6 +5129,9 @@ function animar() {
     let alturaChaoProvisoria = obterAlturaTerreno(posJ.x, posJ.z);
     let estaNaAgua = false;
     if (alturaChaoProvisoria <= NIVEL_DA_AGUA && (posJ.y - ALTURA_JOGADOR) <= NIVEL_DA_AGUA + 0.2) estaNaAgua = true;
+    // NOVO: espelha em uma variável global pro sistema de extração de areia (mais
+    // abaixo, no bloco de mineração) saber se o jogador está dentro d'água.
+    jogadorEstaNaAgua = estaNaAgua;
     
     const redutorAgua = estaNaAgua ? 0.45 : 1.0, multV = correndo ? 1.7 : 1.0;
     
@@ -4900,7 +5153,7 @@ function animar() {
     const PASSO_MAX_COLISAO = 0.15;
     const numSubPassos = Math.min(8, Math.max(1, Math.ceil(distFrame / PASSO_MAX_COLISAO)));
 
-    let alturaDoChaoReal = obterAlturaTerreno(posJ.x, posJ.z);
+    let alturaDoChaoReal = calcularAlturaChaoComZonas(posJ.x, posJ.z, posJ.y);
     let alturaPisoAtual = alturaDoChaoReal + ALTURA_JOGADOR;
 
     for (let sub = 0; sub < numSubPassos; sub++) {
@@ -4908,42 +5161,9 @@ function animar() {
         controles.moveRight(dxFrame / numSubPassos);
         controles.moveForward(dzFrame / numSubPassos);
 
-        // 3. AGORA SIM, CALCULA A ALTURA DO CHÃO NA POSIÇÃO NOVA
-        alturaDoChaoReal = obterAlturaTerreno(posJ.x, posJ.z);
-
-        // --- CORREÇÃO E TRATAMENTO DE INTERIORES E ROTAÇÃO NATIVA ---
-        for (let zona of zonasInteriores) {
-            if (zona.tipo === 'ponte') {
-                if (posJ.x >= zona.minX && posJ.x <= zona.maxX) {
-                    if (posJ.z >= zona.corpoMinZ && posJ.z <= zona.corpoMaxZ) { alturaDoChaoReal = zona.yBase; }
-                    else if (posJ.z >= (zona.corpoMinZ - zona.escadaL) && posJ.z < zona.corpoMinZ) {
-                        let fatorInterp = (posJ.z - (zona.corpoMinZ - zona.escadaL)) / zona.escadaL;
-                        alturaDoChaoReal = THREE.MathUtils.lerp(obterAlturaTerreno(posJ.x, posJ.z), zona.yBase, fatorInterp);
-                    }
-                    else if (posJ.z > zona.corpoMaxZ && posJ.z <= (zona.corpoMaxZ + zona.escadaL)) {
-                        let fatorInterp = ((zona.corpoMaxZ + zona.escadaL) - posJ.z) / zona.escadaL;
-                        alturaDoChaoReal = THREE.MathUtils.lerp(obterAlturaTerreno(posJ.x, posJ.z), zona.yBase, fatorInterp);
-                    }
-                }
-            }
-            else if (zona.tipo === 'casa') {
-                if (Math.abs(posJ.x - zona.x) < zona.w / 2 && Math.abs(posJ.z - zona.z) < zona.d / 2) {
-                    alturaDoChaoReal = zona.pisos[0];
-                }
-            }
-            else if (zona.tipo === 'casa_andares') {
-                let dx = posJ.x - zona.x, dz = posJ.z - zona.z;
-                vetorColisaoAux.set(dx, 0, dz);
-                vetorColisaoAux.applyAxisAngle(eixoY, -zona.rot);
-
-                if (Math.abs(vetorColisaoAux.x) < zona.w / 2 && Math.abs(vetorColisaoAux.z) < zona.d / 2) {
-                    let pisoAlvo = zona.pisos[0];
-                    for (let p of zona.pisos) { if (posJ.y - ALTURA_JOGADOR + 1.0 > p) pisoAlvo = p; }
-                    alturaDoChaoReal = pisoAlvo;
-                }
-            }
-        }
-
+        // 3. AGORA SIM, CALCULA A ALTURA DO CHÃO NA POSIÇÃO NOVA (já considerando
+        // pontes/casas/andares — ver calcularAlturaChaoComZonas acima)
+        alturaDoChaoReal = calcularAlturaChaoComZonas(posJ.x, posJ.z, posJ.y);
         alturaPisoAtual = alturaDoChaoReal + ALTURA_JOGADOR;
 
         // --- COLISÃO FÍSICA DINÂMICA (CASAS OCAS COM ROTAÇÃO 3D PERFEITA) ---
@@ -4998,7 +5218,10 @@ function animar() {
                     posJ.x = posAntigaX;
                     posJ.z = posAntigaZ;
                     // CRÍTICO: Recalcula a altura se bater de cara na parede para não levitar!
-                    alturaPisoAtual = obterAlturaTerreno(posJ.x, posJ.z) + ALTURA_JOGADOR;
+                    // (agora usando calcularAlturaChaoComZonas em vez de obterAlturaTerreno puro,
+                    // senão perdia a altura do andar de cima e o jogador "caía" pro nível do
+                    // terreno sempre que encostava numa parede — ver comentário na função)
+                    alturaPisoAtual = calcularAlturaChaoComZonas(posJ.x, posJ.z, posJ.y) + ALTURA_JOGADOR;
                     break;
                 }
             }
@@ -5326,7 +5549,8 @@ function desenharIconeCasa(canvas, tipo) {
     const configs = {
         p: { escala: 0.80, janelas: 1, andares: 1, chamine: false, corTelhado: '#f87171' },
         m: { escala: 1.00, janelas: 2, andares: 1, chamine: true, corTelhado: '#ef4444' },
-        g: { escala: 1.18, janelas: 3, andares: 2, chamine: true, corTelhado: '#dc2626' }
+        g: { escala: 1.18, janelas: 3, andares: 2, chamine: true, corTelhado: '#dc2626' },
+        concreto: { escala: 1.18, janelas: 4, andares: 1, chamine: false, corTelhado: '#dc2626', corParede: '#b7bbc2' }
     };
     const cfg = configs[tipo] || configs.p;
 
@@ -5345,8 +5569,8 @@ function desenharIconeCasa(canvas, tipo) {
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fill();
 
-    ctx.fillStyle = cfg.andares === 2 ? '#e7c39a' : '#d9a66c';
-    ctx.strokeStyle = '#5c3a21';
+    ctx.fillStyle = cfg.corParede || (cfg.andares === 2 ? '#e7c39a' : '#d9a66c');
+    ctx.strokeStyle = cfg.corParede ? '#4b5563' : '#5c3a21';
     ctx.lineWidth = 1.2;
     ctx.fillRect(paredeEsq, paredeTopoY, larguraParede, alturaParede);
     ctx.strokeRect(paredeEsq, paredeTopoY, larguraParede, alturaParede);
@@ -5421,6 +5645,11 @@ function desenharIconeCasa(canvas, tipo) {
     } else if (cfg.janelas === 2) {
         desenharJanela(0.24, 0);
         desenharJanela(0.76, 0);
+    } else if (cfg.janelas === 4) {
+        desenharJanela(0.14, alturaParede * 0.10);
+        desenharJanela(0.86, alturaParede * 0.10);
+        desenharJanela(0.28, alturaParede * 0.50);
+        desenharJanela(0.72, alturaParede * 0.50);
     } else {
         desenharJanela(0.22, alturaParede * 0.40);
         desenharJanela(0.78, alturaParede * 0.40);
@@ -5587,6 +5816,7 @@ function inicializarIconesDeCrafting() {
     desenharIconeCasa(document.getElementById('canvas-casa-p'), 'p');
     desenharIconeCasa(document.getElementById('canvas-casa-m'), 'm');
     desenharIconeCasa(document.getElementById('canvas-casa-g'), 'g');
+    desenharIconeCasa(document.getElementById('canvas-casa-concreto'), 'concreto');
 
     // Cada item novo desenha tanto no card grande da mesa de trabalho
     // quanto no ícone pequeno da hotbar (mesmo desenho, escala diferente).

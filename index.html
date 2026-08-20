@@ -72,7 +72,8 @@
             <div style="text-align: left; line-height: 1.8; margin: 20px 0; font-size: 0.95rem; color: #d1d5db;">
                 <p><b>W, A, S, D:</b> Movimentar</p>
                 <p><b>Mouse:</b> Olhar ao redor</p>
-                <p><b>Clique Esquerdo (segurar):</b> Cortar árvores / Minerar</p>
+                <p><b>Clique Esquerdo (segurar):</b> Cortar árvores (com machado) / Minerar (com picareta)</p>
+                <p><b>Clique Esquerdo (segurar) mirando numa construção ou item colocado:</b> Demole/remove e devolve a planta (ou o item, inclusive carro, TV, tapete e asfalto) pro seu inventário — funciona com qualquer item equipado</p>
                 <p><b>Teclas [1 a 9]:</b> Alternar itens do inventário</p>
                 <p><b>Tecla [E]:</b> Abrir Mesa de Crafting / Interagir</p>
                 <p><b>Tecla [B]:</b> Abrir Mochila</p>
@@ -102,6 +103,8 @@
             <div class="slot-item" id="slot-ferro"><img style="height: 65%; width: 90%;" src="img/ferro.png" alt=""><span class="qtd" id="txt-qtd-ferro">0</span></div>
             <div class="slot-item" id="slot-cobre"><img style="height: 65%; width: 90%;" src="img/cobre.png" alt=""><span class="qtd" id="txt-qtd-cobre">0</span></div>
             <div class="slot-item" id="slot-ouro"><img style="height: 65%; width: 90%;" src="img/ouro.png" alt=""><span class="qtd" id="txt-qtd-ouro">0</span></div>
+            <div class="slot-item" id="slot-saco-areia"><span style="font-size: 26px;">🏖️</span><span class="qtd" id="txt-qtd-saco-areia">0</span></div>
+            <div class="slot-item" id="slot-cimento"><span style="font-size: 26px;">🧱</span><span class="qtd" id="txt-qtd-cimento">0</span></div>
         </div>
     </div>
 
@@ -150,6 +153,17 @@
                     <span class="custo-chip" data-recurso="pedra">🪨 15</span>
                 </div>
                 <button onclick="craftarConstrucao('torre', 45, 15)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-casa-concreto" data-custo-madeira="10" data-custo-pedra="10" data-custo-saco-areia="10" data-custo-cimento="300">
+                <div class="card-icone"><canvas id="canvas-casa-concreto" class="icone-canvas" width="44" height="44"></canvas></div>
+                <div class="card-nome">Casa de Concreto</div>
+                <div class="card-custos">
+                    <span class="custo-chip" data-recurso="madeira">🪵 10</span>
+                    <span class="custo-chip" data-recurso="pedra">🪨 10</span>
+                    <span class="custo-chip" data-recurso="saco_areia">🏖️ 10</span>
+                    <span class="custo-chip" data-recurso="cimento">🧱 300</span>
+                </div>
+                <button onclick="craftarConstrucao('concreto', 10, 10, 0, 10, 300)">Criar Planta</button>
             </div>
         </div>
 
@@ -432,6 +446,18 @@
                     </div>
                     <div class="loja-item-acao">
                         <button id="loja-btn-comprar-asfalto" onclick="comprarProduto('asfalto')">Comprar</button>
+                    </div>
+                </div>
+
+                <div class="loja-item" id="loja-produto-cimento" data-produto="cimento">
+                    <div class="loja-item-icone"><span style="font-size: 26px;">🧱</span></div>
+                    <div class="loja-item-info">
+                        <div class="loja-item-nome">Cimento (150 sacos)</div>
+                        <div class="loja-item-preco">$1,500.00</div>
+                        <div class="loja-item-disponivel">Você possui: <span id="loja-possui-cimento">0</span></div>
+                    </div>
+                    <div class="loja-item-acao">
+                        <button id="loja-btn-comprar-cimento" onclick="comprarProduto('cimento')">Comprar</button>
                     </div>
                 </div>
             </div>
