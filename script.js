@@ -124,30 +124,33 @@ let hotbar = new Array(LIMITE_HOTBAR).fill(null);
 const CONFIG_ITENS_HOTBAR = {
     machado: { icone: { tipo: 'emoji', valor: '🪓' } },
     picareta: { icone: { tipo: 'emoji', valor: '⛏️' } },
-    pa: { icone: { tipo: 'emoji', valor: '🪣' }, rotulo: 'Pá' },
-    planta_p: { icone: { tipo: 'emoji', valor: '📜🏡' }, rotulo: 'P' },
-    planta_m: { icone: { tipo: 'emoji', valor: '📜🏛️' }, rotulo: 'M' },
-    planta_g: { icone: { tipo: 'emoji', valor: '📜🏰' }, rotulo: 'G' },
+    pa: { icone: { tipo: 'emoji', valor: '🪏' }, rotulo: 'Pá' },
+    // Os ícones abaixo eram emojis (📜🏡 etc.) e agora são desenhos em canvas —
+    // reaproveitam a MESMA função usada nos cards da mesa de trabalho, então a
+    // hotbar e a mesa de trabalho sempre mostram o mesmo desenho pra cada item.
+    planta_p: { icone: { tipo: 'canvas', valor: (c) => desenharIconeCasa(c, 'p') }, rotulo: 'P' },
+    planta_m: { icone: { tipo: 'canvas', valor: (c) => desenharIconeCasa(c, 'm') }, rotulo: 'M' },
+    planta_g: { icone: { tipo: 'canvas', valor: (c) => desenharIconeCasa(c, 'g') }, rotulo: 'G' },
     planta_fogueira: { icone: { tipo: 'img', valor: 'img/fogueira.png' }, rotulo: 'F' },
     planta_piso: { icone: { tipo: 'img', valor: 'img/piso.png' } },
-    planta_tocha: { icone: { tipo: 'emoji', valor: '🕯️' } },
-    planta_cama: { icone: { tipo: 'emoji', valor: '🛏️' } },
+    planta_tocha: { icone: { tipo: 'canvas', valor: desenharIconeTocha } },
+    planta_cama: { icone: { tipo: 'canvas', valor: desenharIconeCama } },
     planta_cerca: { icone: { tipo: 'canvas', valor: desenharIconeCerca } },
     planta_muro: { icone: { tipo: 'canvas', valor: desenharIconeMuro } },
     planta_mesa: { icone: { tipo: 'canvas', valor: desenharIconeMesa } },
     planta_cadeira: { icone: { tipo: 'canvas', valor: desenharIconeCadeira } },
     planta_bau: { icone: { tipo: 'canvas', valor: desenharIconeBau } },
     planta_lareira: { icone: { tipo: 'canvas', valor: desenharIconeLareira } },
-    planta_carro: { icone: { tipo: 'emoji', valor: '🚗' }, rotulo: 'Carro' },
-    planta_tv: { icone: { tipo: 'emoji', valor: '📺' }, rotulo: 'TV' },
-    planta_torre: { icone: { tipo: 'emoji', valor: '🗼' } },
-    planta_concreto: { icone: { tipo: 'emoji', valor: '📜🧱' }, rotulo: 'C' },
-    planta_banco: { icone: { tipo: 'emoji', valor: '🪑' } },
-    planta_poste: { icone: { tipo: 'emoji', valor: '💡' } },
-    planta_armario: { icone: { tipo: 'emoji', valor: '🗄️' } },
-    planta_estante: { icone: { tipo: 'emoji', valor: '📚' } },
-    planta_tapete: { icone: { tipo: 'emoji', valor: '🟥' }, rotulo: 'Tapete' },
-    planta_asfalto: { icone: { tipo: 'emoji', valor: '⬛' }, rotulo: 'Asfalto' }
+    planta_carro: { icone: { tipo: 'canvas', valor: (c) => desenharIconeCarro(c) }, rotulo: 'Carro' },
+    planta_tv: { icone: { tipo: 'canvas', valor: desenharIconeTV }, rotulo: 'TV' },
+    planta_torre: { icone: { tipo: 'canvas', valor: desenharIconeTorre } },
+    planta_concreto: { icone: { tipo: 'canvas', valor: (c) => desenharIconeCasa(c, 'concreto') }, rotulo: 'C' },
+    planta_banco: { icone: { tipo: 'canvas', valor: desenharIconeBanco } },
+    planta_poste: { icone: { tipo: 'canvas', valor: desenharIconePoste } },
+    planta_armario: { icone: { tipo: 'canvas', valor: desenharIconeArmario } },
+    planta_estante: { icone: { tipo: 'canvas', valor: desenharIconeEstante } },
+    planta_tapete: { icone: { tipo: 'canvas', valor: (c) => desenharIconeTapete(c) }, rotulo: 'Tapete' },
+    planta_asfalto: { icone: { tipo: 'canvas', valor: desenharIconeAsfalto }, rotulo: 'Asfalto' }
 };
 
 // Tenta reservar um número/posição na hotbar pro item (se ele ainda não tiver).
@@ -1176,6 +1179,9 @@ document.querySelectorAll('#paleta-cores-carro .cor-opcao').forEach(botaoCor => 
         document.querySelectorAll('#paleta-cores-carro .cor-opcao').forEach(b => b.classList.remove('ativa'));
         botaoCor.classList.add('ativa');
         corCarroSelecionada = botaoCor.dataset.cor;
+        // Redesenha o ícone do carro na loja com a cor recém-escolhida.
+        const canvasLojaCarro = document.getElementById('canvas-loja-carro');
+        if (canvasLojaCarro) desenharIconeCarro(canvasLojaCarro, corCarroSelecionada);
     });
 });
 
@@ -1185,6 +1191,9 @@ document.querySelectorAll('#paleta-cores-tapete .cor-opcao').forEach(botaoCor =>
         document.querySelectorAll('#paleta-cores-tapete .cor-opcao').forEach(b => b.classList.remove('ativa'));
         botaoCor.classList.add('ativa');
         corTapeteSelecionada = botaoCor.dataset.cor;
+        // Redesenha o ícone do tapete na loja com a cor recém-escolhida.
+        const canvasLojaTapete = document.getElementById('canvas-loja-tapete');
+        if (canvasLojaTapete) desenharIconeTapete(canvasLojaTapete, corTapeteSelecionada);
     });
 });
 
@@ -1329,9 +1338,26 @@ function obterAlturaTerreno(x, z) {
     const h01 = pos.getZ((lin + 1) * largura + col);
     const h11 = pos.getZ((lin + 1) * largura + col + 1);
 
-    const hTopo = h00 + (h10 - h00) * fracX;
-    const hBase = h01 + (h11 - h01) * fracX;
-    const h = hTopo + (hBase - hTopo) * fracZ;
+    // CORREÇÃO (asfalto "afundando" e deixando pedaços de grama aparecendo por
+    // cima): a interpolação antiga era bilinear "lisa" ao longo de todo o
+    // quadrado (h00→h10→h11→h01), mas a malha do terreno de verdade é
+    // desenhada com CADA quadrado dividido em 2 triângulos retos (é assim que
+    // o THREE.PlaneGeometry monta os índices). Numa área bem inclinada, essas
+    // duas superfícies (a "lisa" e a "real", com quina no meio) podem diferir
+    // o suficiente pra o bloco de asfalto (que segue essa função) ficar um
+    // pouco abaixo do relevo real em alguns pontos — e a grama "vaza" por
+    // cima. Agora a função usa a MESMA divisão em triângulos do
+    // PlaneGeometry (diagonal entre os cantos h01 e h10), então o valor
+    // devolvido aqui bate exatamente com a altura que é renderizada na tela,
+    // não é mais uma aproximação.
+    let h;
+    if (fracX + fracZ <= 1) {
+        // Triângulo (h00, h01, h10)
+        h = h00 + (h10 - h00) * fracX + (h01 - h00) * fracZ;
+    } else {
+        // Triângulo (h01, h11, h10)
+        h = (1 - fracZ) * h10 + (fracX + fracZ - 1) * h11 + (1 - fracX) * h01;
+    }
 
     return h < NIVEL_DA_AGUA ? NIVEL_DA_AGUA : h;
 }
@@ -5812,13 +5838,328 @@ function desenharIconeLareira(canvas) {
     ctx.fill();
 }
 
+// ============================================================
+// ÍCONES NOVOS: TORRE, MÓVEIS, POSTE, VEÍCULO, TV, TAPETE, ASFALTO
+// ============================================================
+// Mesmo espírito dos ícones acima: nada de emoji representando construção —
+// só desenho vetorial simples em canvas, escalado por frações de W/H (funciona
+// tanto no ícone grande da mesa de trabalho/loja (44x44) quanto no pequeno da
+// hotbar (32x32)).
+function desenharIconeTorre(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corPedra = '#9ca3af', corContorno = '#374151';
+    ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.035);
+
+    // corpo afunilado (mais largo embaixo, mais estreito em cima)
+    const baseY = H * 0.92, topoY = H * 0.30;
+    const baseLarg = W * 0.34, topoLarg = W * 0.20;
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - baseLarg / 2, baseY);
+    ctx.lineTo(W / 2 - topoLarg / 2, topoY);
+    ctx.lineTo(W / 2 + topoLarg / 2, topoY);
+    ctx.lineTo(W / 2 + baseLarg / 2, baseY);
+    ctx.closePath();
+    ctx.fillStyle = corPedra;
+    ctx.fill();
+    ctx.stroke();
+
+    // faixas horizontais (andares)
+    ctx.strokeStyle = 'rgba(55,65,81,0.45)';
+    ctx.lineWidth = Math.max(1, W * 0.02);
+    [0.42, 0.62, 0.80].forEach(f => {
+        const y = topoY + (baseY - topoY) * f;
+        const largAtY = topoLarg + (baseLarg - topoLarg) * f;
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - largAtY / 2, y);
+        ctx.lineTo(W / 2 + largAtY / 2, y);
+        ctx.stroke();
+    });
+
+    // cabine do farol
+    ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.035);
+    ctx.fillStyle = '#dc2626';
+    ctx.fillRect(W / 2 - topoLarg * 0.75 / 2, topoY - H * 0.10, topoLarg * 0.75, H * 0.10);
+    ctx.strokeRect(W / 2 - topoLarg * 0.75 / 2, topoY - H * 0.10, topoLarg * 0.75, H * 0.10);
+
+    // luz e feixe
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(W / 2, topoY - H * 0.15, W * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.30;
+    ctx.beginPath();
+    ctx.moveTo(W / 2, topoY - H * 0.15);
+    ctx.lineTo(W * 0.92, topoY - H * 0.32);
+    ctx.lineTo(W * 0.92, topoY - H * 0.02);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+}
+
+function desenharIconeBanco(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corMadeira = '#8b5e34', corContorno = '#5c3a21';
+    ctx.fillStyle = corMadeira; ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.04);
+
+    ctx.fillRect(W * 0.10, H * 0.42, W * 0.80, H * 0.14);
+    ctx.strokeRect(W * 0.10, H * 0.42, W * 0.80, H * 0.14);
+
+    [W * 0.16, W * 0.36, W * 0.58, W * 0.78].forEach(px => {
+        ctx.fillRect(px, H * 0.56, W * 0.06, H * 0.34);
+        ctx.strokeRect(px, H * 0.56, W * 0.06, H * 0.34);
+    });
+}
+
+function desenharIconeArmario(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corMadeira = '#8b5e34', corContorno = '#5c3a21';
+    ctx.fillStyle = corMadeira; ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.045);
+
+    ctx.fillRect(W * 0.20, H * 0.10, W * 0.60, H * 0.80);
+    ctx.strokeRect(W * 0.20, H * 0.10, W * 0.60, H * 0.80);
+
+    ctx.beginPath();
+    ctx.moveTo(W * 0.5, H * 0.10);
+    ctx.lineTo(W * 0.5, H * 0.90);
+    ctx.stroke();
+
+    ctx.fillStyle = '#d4d4d8';
+    ctx.beginPath(); ctx.arc(W * 0.44, H * 0.5, W * 0.025, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(W * 0.56, H * 0.5, W * 0.025, 0, Math.PI * 2); ctx.fill();
+}
+
+function desenharIconeEstante(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corMadeira = '#8b5e34', corContorno = '#5c3a21';
+    ctx.fillStyle = corMadeira; ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.04);
+
+    ctx.fillRect(W * 0.14, H * 0.10, W * 0.72, H * 0.80);
+    ctx.strokeRect(W * 0.14, H * 0.10, W * 0.72, H * 0.80);
+
+    ctx.lineWidth = Math.max(1, W * 0.025);
+    [H * 0.42, H * 0.66].forEach(y => {
+        ctx.beginPath(); ctx.moveTo(W * 0.14, y); ctx.lineTo(W * 0.86, y); ctx.stroke();
+    });
+
+    const cores = ['#dc2626', '#2563eb', '#16a34a', '#eab308'];
+    let x = W * 0.20;
+    cores.forEach(cor => {
+        const largura = W * 0.11;
+        ctx.fillStyle = cor;
+        ctx.fillRect(x, H * 0.16, largura, H * 0.20);
+        x += largura + W * 0.015;
+    });
+}
+
+function desenharIconeTocha(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corMadeira = '#8b5e34', corContorno = '#5c3a21';
+    ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.05);
+
+    ctx.fillStyle = corMadeira;
+    ctx.fillRect(W * 0.44, H * 0.42, W * 0.12, H * 0.50);
+    ctx.strokeRect(W * 0.44, H * 0.42, W * 0.12, H * 0.50);
+
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.moveTo(W * 0.5, H * 0.06);
+    ctx.quadraticCurveTo(W * 0.68, H * 0.28, W * 0.5, H * 0.48);
+    ctx.quadraticCurveTo(W * 0.32, H * 0.28, W * 0.5, H * 0.06);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.moveTo(W * 0.5, H * 0.16);
+    ctx.quadraticCurveTo(W * 0.60, H * 0.30, W * 0.5, H * 0.42);
+    ctx.quadraticCurveTo(W * 0.40, H * 0.30, W * 0.5, H * 0.16);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function desenharIconeCama(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corMadeira = '#8b5e34', corContorno = '#5c3a21';
+    ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.04);
+
+    ctx.fillStyle = corMadeira;
+    ctx.fillRect(W * 0.10, H * 0.66, W * 0.80, H * 0.12);
+    ctx.strokeRect(W * 0.10, H * 0.66, W * 0.80, H * 0.12);
+    ctx.fillRect(W * 0.10, H * 0.30, W * 0.08, H * 0.48);
+    ctx.strokeRect(W * 0.10, H * 0.30, W * 0.08, H * 0.48);
+
+    ctx.fillStyle = '#e5e7eb';
+    ctx.fillRect(W * 0.18, H * 0.48, W * 0.68, H * 0.20);
+    ctx.strokeRect(W * 0.18, H * 0.48, W * 0.68, H * 0.20);
+
+    ctx.fillStyle = '#f9fafb';
+    ctx.fillRect(W * 0.20, H * 0.38, W * 0.20, H * 0.14);
+    ctx.strokeRect(W * 0.20, H * 0.38, W * 0.20, H * 0.14);
+
+    ctx.fillStyle = '#3b82f6';
+    ctx.fillRect(W * 0.44, H * 0.48, W * 0.42, H * 0.20);
+    ctx.strokeRect(W * 0.44, H * 0.48, W * 0.42, H * 0.20);
+}
+
+function desenharIconePoste(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corMetal = '#4b5563', corContorno = '#1f2937';
+    ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.035);
+
+    ctx.fillStyle = corMetal;
+    ctx.fillRect(W * 0.46, H * 0.30, W * 0.08, H * 0.62);
+    ctx.strokeRect(W * 0.46, H * 0.30, W * 0.08, H * 0.62);
+
+    ctx.beginPath();
+    ctx.moveTo(W * 0.50, H * 0.32);
+    ctx.quadraticCurveTo(W * 0.72, H * 0.28, W * 0.74, H * 0.40);
+    ctx.lineWidth = Math.max(1, W * 0.05);
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(W * 0.74, H * 0.42, W * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(W * 0.74, H * 0.42, W * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.03);
+    ctx.stroke();
+
+    ctx.fillStyle = corMetal;
+    ctx.fillRect(W * 0.40, H * 0.90, W * 0.20, H * 0.06);
+    ctx.strokeRect(W * 0.40, H * 0.90, W * 0.20, H * 0.06);
+}
+
+// "cor" é opcional — usada pra bater com a cor escolhida na loja; sem cor,
+// cai no vermelho padrão (mesma cor inicial de corCarroSelecionada).
+function desenharIconeCarro(canvas, cor) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corCarro = cor || '#dc2626', corContorno = '#1f2937';
+    ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.035);
+
+    ctx.fillStyle = corCarro;
+    ctx.beginPath();
+    ctx.moveTo(W * 0.10, H * 0.62);
+    ctx.lineTo(W * 0.16, H * 0.40);
+    ctx.lineTo(W * 0.36, H * 0.30);
+    ctx.lineTo(W * 0.64, H * 0.30);
+    ctx.lineTo(W * 0.82, H * 0.42);
+    ctx.lineTo(W * 0.90, H * 0.62);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#bfdbfe';
+    ctx.beginPath();
+    ctx.moveTo(W * 0.38, H * 0.33);
+    ctx.lineTo(W * 0.60, H * 0.33);
+    ctx.lineTo(W * 0.66, H * 0.42);
+    ctx.lineTo(W * 0.32, H * 0.42);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#1f2937';
+    ctx.beginPath(); ctx.arc(W * 0.28, H * 0.64, W * 0.09, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(W * 0.72, H * 0.64, W * 0.09, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#9ca3af';
+    ctx.beginPath(); ctx.arc(W * 0.28, H * 0.64, W * 0.035, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(W * 0.72, H * 0.64, W * 0.035, 0, Math.PI * 2); ctx.fill();
+}
+
+function desenharIconeTV(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corContorno = '#1f2937';
+    ctx.strokeStyle = corContorno; ctx.lineWidth = Math.max(1, W * 0.045);
+
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(W * 0.12, H * 0.16, W * 0.76, H * 0.52);
+    ctx.strokeRect(W * 0.12, H * 0.16, W * 0.76, H * 0.52);
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(W * 0.18, H * 0.22, W * 0.30, H * 0.18);
+
+    ctx.fillStyle = '#4b5563';
+    ctx.fillRect(W * 0.44, H * 0.68, W * 0.12, H * 0.14);
+    ctx.fillRect(W * 0.28, H * 0.82, W * 0.44, H * 0.06);
+    ctx.strokeRect(W * 0.28, H * 0.82, W * 0.44, H * 0.06);
+}
+
+// "cor" é opcional — usada pra bater com a cor escolhida na loja; sem cor,
+// cai no vermelho padrão (mesma cor inicial de corTapeteSelecionada).
+function desenharIconeTapete(canvas, cor) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const corTapete = cor || '#b91c1c';
+    ctx.fillStyle = corTapete;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = Math.max(1, W * 0.03);
+    ctx.fillRect(W * 0.10, H * 0.24, W * 0.80, H * 0.52);
+    ctx.strokeRect(W * 0.10, H * 0.24, W * 0.80, H * 0.52);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = Math.max(1, W * 0.02);
+    ctx.strokeRect(W * 0.18, H * 0.32, W * 0.64, H * 0.36);
+}
+
+function desenharIconeAsfalto(canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.fillStyle = '#27272a';
+    ctx.fillRect(W * 0.08, H * 0.08, W * 0.84, H * 0.84);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    for (let i = 0; i < 30; i++) {
+        const rx = W * 0.08 + Math.random() * W * 0.84;
+        const ry = H * 0.08 + Math.random() * H * 0.84;
+        ctx.fillRect(rx, ry, 1, 1);
+    }
+
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = Math.max(1, W * 0.05);
+    ctx.setLineDash([W * 0.12, W * 0.08]);
+    ctx.beginPath();
+    ctx.moveTo(W * 0.5, H * 0.14);
+    ctx.lineTo(W * 0.5, H * 0.86);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = '#111827';
+    ctx.lineWidth = Math.max(1, W * 0.035);
+    ctx.strokeRect(W * 0.08, H * 0.08, W * 0.84, H * 0.84);
+}
+
 function inicializarIconesDeCrafting() {
     desenharIconeCasa(document.getElementById('canvas-casa-p'), 'p');
     desenharIconeCasa(document.getElementById('canvas-casa-m'), 'm');
     desenharIconeCasa(document.getElementById('canvas-casa-g'), 'g');
     desenharIconeCasa(document.getElementById('canvas-casa-concreto'), 'concreto');
 
-    // Cada item novo desenha tanto no card grande da mesa de trabalho
+    // Cada item novo desenha tanto no card grande da mesa de trabalho/loja
     // quanto no ícone pequeno da hotbar (mesmo desenho, escala diferente).
     [
         ['canvas-cerca', desenharIconeCerca],
@@ -5826,7 +6167,18 @@ function inicializarIconesDeCrafting() {
         ['canvas-mesa', desenharIconeMesa],
         ['canvas-cadeira', desenharIconeCadeira],
         ['canvas-bau', desenharIconeBau],
-        ['canvas-lareira', desenharIconeLareira]
+        ['canvas-lareira', desenharIconeLareira],
+        ['canvas-torre', desenharIconeTorre],
+        ['canvas-banco', desenharIconeBanco],
+        ['canvas-armario', desenharIconeArmario],
+        ['canvas-estante', desenharIconeEstante],
+        ['canvas-tocha', desenharIconeTocha],
+        ['canvas-cama', desenharIconeCama],
+        ['canvas-poste', desenharIconePoste],
+        ['canvas-loja-carro', (c) => desenharIconeCarro(c)],
+        ['canvas-loja-tv', desenharIconeTV],
+        ['canvas-loja-tapete', (c) => desenharIconeTapete(c)],
+        ['canvas-loja-asfalto', desenharIconeAsfalto]
     ].forEach(([id, funcaoDesenho]) => {
         const el = document.getElementById(id);
         if (el) funcaoDesenho(el);

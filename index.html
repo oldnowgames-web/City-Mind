@@ -103,8 +103,8 @@
             <div class="slot-item" id="slot-ferro"><img style="height: 65%; width: 90%;" src="img/ferro.png" alt=""><span class="qtd" id="txt-qtd-ferro">0</span></div>
             <div class="slot-item" id="slot-cobre"><img style="height: 65%; width: 90%;" src="img/cobre.png" alt=""><span class="qtd" id="txt-qtd-cobre">0</span></div>
             <div class="slot-item" id="slot-ouro"><img style="height: 65%; width: 90%;" src="img/ouro.png" alt=""><span class="qtd" id="txt-qtd-ouro">0</span></div>
-            <div class="slot-item" id="slot-saco-areia"><span style="font-size: 26px;">🏖️</span><span class="qtd" id="txt-qtd-saco-areia">0</span></div>
-            <div class="slot-item" id="slot-cimento"><span style="font-size: 26px;">🧱</span><span class="qtd" id="txt-qtd-cimento">0</span></div>
+            <div class="slot-item" id="slot-saco-areia"><img style="height: 65%; width: 90%;" src="img/areia.png" alt=""><span class="qtd" id="txt-qtd-saco-areia">0</span></div>
+            <div class="slot-item" id="slot-cimento"><img style="height: 65%; width: 90%;" src="img/cimento.png" alt=""><span class="qtd" id="txt-qtd-cimento">0</span></div>
         </div>
     </div>
 
@@ -146,7 +146,7 @@
                 <button onclick="craftarConstrucao('g', 45)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-torre" data-custo-madeira="45" data-custo-pedra="15">
-                <div class="card-icone"><div class="icone-emoji">🗼</div></div>
+                <div class="card-icone"><canvas id="canvas-torre" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Torre-Farol</div>
                 <div class="card-custos">
                     <span class="custo-chip" data-recurso="madeira">🪵 45</span>
@@ -160,8 +160,8 @@
                 <div class="card-custos">
                     <span class="custo-chip" data-recurso="madeira">🪵 10</span>
                     <span class="custo-chip" data-recurso="pedra">🪨 10</span>
-                    <span class="custo-chip" data-recurso="saco_areia">🏖️ 10</span>
-                    <span class="custo-chip" data-recurso="cimento">🧱 300</span>
+                    <span class="custo-chip" data-recurso="saco_areia"><img class="custo-icone-img" src="img/areia.png" alt=""> 10</span>
+                    <span class="custo-chip" data-recurso="cimento"><img class="custo-icone-img" src="img/cimento.png" alt=""> 300</span>
                 </div>
                 <button onclick="craftarConstrucao('concreto', 10, 10, 0, 10, 300)">Criar Planta</button>
             </div>
@@ -214,19 +214,19 @@
                 <button onclick="craftarConstrucao('lareira', 3, 6)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-banco" data-custo-madeira="4" data-custo-pedra="0">
-                <div class="card-icone"><div class="icone-emoji">🪑</div></div>
+                <div class="card-icone"><canvas id="canvas-banco" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Banco de Madeira</div>
                 <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 4</span></div>
                 <button onclick="craftarConstrucao('banco', 4, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-armario" data-custo-madeira="9" data-custo-pedra="0">
-                <div class="card-icone"><div class="icone-emoji">🗄️</div></div>
+                <div class="card-icone"><canvas id="canvas-armario" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Armário</div>
                 <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 9</span></div>
                 <button onclick="craftarConstrucao('armario', 9, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-estante" data-custo-madeira="7" data-custo-pedra="0">
-                <div class="card-icone"><div class="icone-emoji">📚</div></div>
+                <div class="card-icone"><canvas id="canvas-estante" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Estante de Livros</div>
                 <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 7</span></div>
                 <button onclick="craftarConstrucao('estante', 7, 0)">Criar Planta</button>
@@ -250,7 +250,7 @@
                 <button onclick="craftarConstrucao('piso', 0, 6)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-tocha" data-custo-madeira="1" data-custo-pedra="1">
-                <div class="card-icone"><div class="icone-emoji">🕯️</div></div>
+                <div class="card-icone"><canvas id="canvas-tocha" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Tocha</div>
                 <div class="card-custos">
                     <span class="custo-chip" data-recurso="madeira">🪵 1</span>
@@ -259,13 +259,13 @@
                 <button onclick="craftarConstrucao('tocha', 1, 1)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-cama" data-custo-madeira="4" data-custo-pedra="0">
-                <div class="card-icone"><div class="icone-emoji">🛏️</div></div>
+                <div class="card-icone"><canvas id="canvas-cama" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Cama</div>
                 <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 4</span></div>
                 <button onclick="craftarConstrucao('cama', 4, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-poste" data-custo-madeira="0" data-custo-pedra="5">
-                <div class="card-icone"><div class="icone-emoji">💡</div></div>
+                <div class="card-icone"><canvas id="canvas-poste" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Poste de Luz</div>
                 <div class="card-custos"><span class="custo-chip" data-recurso="pedra">🪨 5</span></div>
                 <button onclick="craftarConstrucao('poste', 0, 5)">Criar Planta</button>
@@ -373,7 +373,7 @@
             <div class="loja-grid">
                 <div class="loja-item loja-item-carro" id="loja-produto-carro" data-produto="carro">
                     <div class="loja-item-linha-topo">
-                        <div class="loja-item-icone"><span style="font-size: 26px;">🚗</span></div>
+                        <div class="loja-item-icone"><canvas id="canvas-loja-carro" class="icone-canvas" width="32" height="32"></canvas></div>
                         <div class="loja-item-info">
                             <div class="loja-item-nome">Carro</div>
                             <div class="loja-item-preco">$20,000.00</div>
@@ -399,7 +399,7 @@
                 </div>
 
                 <div class="loja-item" id="loja-produto-tv" data-produto="tv">
-                    <div class="loja-item-icone"><span style="font-size: 26px;">📺</span></div>
+                    <div class="loja-item-icone"><canvas id="canvas-loja-tv" class="icone-canvas" width="32" height="32"></canvas></div>
                     <div class="loja-item-info">
                         <div class="loja-item-nome">Televisão</div>
                         <div class="loja-item-preco">$2,000.00</div>
@@ -412,7 +412,7 @@
 
                 <div class="loja-item loja-item-carro" id="loja-produto-tapete" data-produto="tapete">
                     <div class="loja-item-linha-topo">
-                        <div class="loja-item-icone"><span style="font-size: 26px;">🟥</span></div>
+                        <div class="loja-item-icone"><canvas id="canvas-loja-tapete" class="icone-canvas" width="32" height="32"></canvas></div>
                         <div class="loja-item-info">
                             <div class="loja-item-nome">Tapete</div>
                             <div class="loja-item-preco">$100.00</div>
@@ -438,7 +438,7 @@
                 </div>
 
                 <div class="loja-item" id="loja-produto-asfalto" data-produto="asfalto">
-                    <div class="loja-item-icone"><span style="font-size: 26px;">⬛</span></div>
+                    <div class="loja-item-icone"><canvas id="canvas-loja-asfalto" class="icone-canvas" width="32" height="32"></canvas></div>
                     <div class="loja-item-info">
                         <div class="loja-item-nome">Piche de Asfalto (10 blocos)</div>
                         <div class="loja-item-preco">$300.00</div>
@@ -450,7 +450,7 @@
                 </div>
 
                 <div class="loja-item" id="loja-produto-cimento" data-produto="cimento">
-                    <div class="loja-item-icone"><span style="font-size: 26px;">🧱</span></div>
+                    <div class="loja-item-icone"><img style="height: 65%; width: 90%;" src="img/cimento.png" alt=""></div>
                     <div class="loja-item-info">
                         <div class="loja-item-nome">Cimento (150 sacos)</div>
                         <div class="loja-item-preco">$1,500.00</div>

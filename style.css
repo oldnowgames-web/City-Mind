@@ -204,6 +204,7 @@ body {
     border-radius: 12px; font-weight: 600; color: #d1d5db; transition: color 0.15s, background 0.15s;
 }
 .custo-chip.falta { color: #fca5a5; background: rgba(239,68,68,0.18); }
+.custo-icone-img { width: 14px; height: 14px; object-fit: contain; vertical-align: -2px; margin-right: 1px; }
 
 .card-craft button {
     width: 100%; background: linear-gradient(135deg, #22c55e, #16a34a); border: none; color: white;
