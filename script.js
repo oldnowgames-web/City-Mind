@@ -325,6 +325,11 @@ let controles = new THREE.PointerLockControls(camera, document.body);
 // já poder aliviar antialiasing e sombras em celulares, que costumam ter GPU
 // bem mais fraca que um PC. 'ehTouch' é reaproveitado no resto do arquivo.
 let ehTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+// Marca o body para o CSS poder aplicar ajustes específicos de layout mobile
+// (ver #inventario-hud e #dinheiro-hud no style.css) sem depender de media
+// query de largura de tela, já que o que importa aqui é ter joystick/botões
+// de toque na tela, não o tamanho físico da tela.
+if (ehTouch) document.body.classList.add('modo-touch');
 
 const renderizador = new THREE.WebGLRenderer({ antialias: !ehTouch, logarithmicDepthBuffer: true });
 renderizador.setSize(window.innerWidth, window.innerHeight);
@@ -954,7 +959,17 @@ function executarPulo() { if (podeSaltar) { velocidade.y = FORCA_SALTO; podeSalt
 
 function processarInteracaoGeral() {
     if (menuCraftingAberto) {
-        menuCrafting.style.display = 'none'; menuCraftingAberto = false; controles.lock(); return;
+        // CORREÇÃO (mobile: joystick "pulava" de lugar ao fechar a mesa de
+        // trabalho): esse controles.lock() pedia Pointer Lock (API feita pra
+        // travar o cursor do mouse no PC) mesmo em celular, onde não existe
+        // cursor. Em navegadores mobile que tentam atender esse pedido mesmo
+        // assim, isso mexe na barra de endereço/viewport e faz os elementos
+        // fixos do HUD (joystick incluído) recalcularem posição de forma
+        // errada. No touch isso nunca deveria ter sido chamado — só o PC
+        // precisa travar o mouse de volta ao fechar o menu.
+        menuCrafting.style.display = 'none'; menuCraftingAberto = false;
+        if (!ehTouch && controles) controles.lock();
+        return;
     }
     if (menuLojaAberto) {
         fecharLoja(); return;
