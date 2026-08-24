@@ -85,21 +85,17 @@ body {
    paisagem (a maioria fica abaixo de ~850px de largura), as pontas da barra
    invadem o canto do joystick (esquerda) e dos botões de ação (direita), que
    ficam na mesma altura (bottom:20px) e têm z-index maior.
-   Tentei primeiro subir a hotbar (bottom:190px, igual o #dinheiro-hud usa) —
-   só que em celular deitado a ALTURA da tela é pequena (ex.: ~375px num
-   iPhone SE), então 190px de distância do fundo já é quase a METADE da tela:
-   a barra parecia estar flutuando no centro em vez de embaixo. Landscape tem
-   é LARGURA de sobra, não altura — então em vez de subir, a correção certa é
-   travar as bordas esquerda/direita da hotbar exatamente no fim do joystick
-   e no início dos botões (com uma folga de segurança), deixando ela ainda
-   grudada no fundo da tela. Como o container tem "left" e "right" definidos
-   ao mesmo tempo (em vez de "left:50%"+transform), a largura dele já fica
-   automaticamente presa nesse corredor livre, e o "flex-wrap" cuida de
-   quebrar em mais linhas — crescendo pra cima, sem nunca alcançar os
-   cantos — se não couber numa linha só. */
-.modo-touch #inventario-hud {
-    left: 185px; right: 250px; transform: none; max-width: none;
-}
+   Tentei primeiro subir a hotbar (bottom:190px) — mas em tela baixa (celular
+   deitado) isso ficava quase no centro da tela.
+   Depois travei as bordas com "left" e "right" juntos — só que isso faz o
+   container ESTICAR pra preencher todo esse espaço (é assim que left+right
+   funcionam quando width não é definida), então o fundo escuro ficava enorme
+   mesmo com só 2-3 itens no inventário, bem diferente do PC (que encolhe pro
+   tamanho do conteúdo). A correção certa: manter "left:50%" + transform
+   (igual ao PC, encolhe pro tamanho do conteúdo) e usar o corredor livre só
+   como um TETO de largura via max-width — nunca estica além do necessário,
+   mas também nunca cresce a ponto de alcançar o joystick/botões. */
+.modo-touch #inventario-hud { max-width: calc(100vw - 500px); }
 
 .slot-item {
     position: relative !important;

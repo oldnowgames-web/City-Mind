@@ -124,7 +124,7 @@ let hotbar = new Array(LIMITE_HOTBAR).fill(null);
 const CONFIG_ITENS_HOTBAR = {
     machado: { icone: { tipo: 'emoji', valor: '🪓' } },
     picareta: { icone: { tipo: 'emoji', valor: '⛏️' } },
-    pa: { icone: { tipo: 'emoji', valor: '🪏' }, rotulo: 'Pá' },
+    pa: { icone: { tipo: 'emoji', valor: '🪏' }},
     // Os ícones abaixo eram emojis (📜🏡 etc.) e agora são desenhos em canvas —
     // reaproveitam a MESMA função usada nos cards da mesa de trabalho, então a
     // hotbar e a mesa de trabalho sempre mostram o mesmo desenho pra cada item.
