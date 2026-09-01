@@ -19,6 +19,7 @@ let inventario = {
     madeira: 0,
     machado: 1,
     pa: 1, // NOVO: ferramenta pra extrair areia de rios/lagos
+    peneira: 0, // NOVO: ferramenta pra garimpar ouro no rio — não vem de início, precisa craftar na mesa (2 madeira + 1 ferro)
     planta_p: 0,
     planta_m: 0,
     planta_g: 0,
@@ -125,6 +126,7 @@ const CONFIG_ITENS_HOTBAR = {
     machado: { icone: { tipo: 'emoji', valor: '🪓' } },
     picareta: { icone: { tipo: 'emoji', valor: '⛏️' } },
     pa: { icone: { tipo: 'emoji', valor: '🪏' }},
+    peneira: { icone: { tipo: 'img', valor: 'img/peneira.png', fallback: '🧺' } },
     // Os ícones abaixo eram emojis (📜🏡 etc.) e agora são desenhos em canvas —
     // reaproveitam a MESMA função usada nos cards da mesa de trabalho, então a
     // hotbar e a mesa de trabalho sempre mostram o mesmo desenho pra cada item.
@@ -152,6 +154,102 @@ const CONFIG_ITENS_HOTBAR = {
     planta_tapete: { icone: { tipo: 'canvas', valor: (c) => desenharIconeTapete(c) }, rotulo: 'Tapete' },
     planta_asfalto: { icone: { tipo: 'canvas', valor: desenharIconeAsfalto }, rotulo: 'Asfalto' }
 };
+
+// ------------------------------------------------------------------
+// SISTEMA DE CATEGORIAS DA MOCHILA
+// ------------------------------------------------------------------
+// A mochila mostra TODOS os itens que o jogador possui (mesmo os que não
+// couberam nos 10 slots do inventário/hotbar), organizados em abas. Itens
+// "equipáveis" (ferramentas e plantas) podem ser colocados no inventário
+// tocando neles e depois tocando no slot desejado (ver renderizarMochila e
+// tratarCliqueMochila). Materiais (madeira, pedra, ferro...) são só exibidos,
+// não são equipáveis.
+const CATEGORIAS_ITENS = {
+    ferramentas: { titulo: '🛠️ Ferramentas', chaves: ['machado', 'picareta', 'pa', 'peneira'] },
+    construcoes: { titulo: '🏠 Construções', chaves: ['planta_p', 'planta_m', 'planta_g', 'planta_concreto', 'planta_torre', 'planta_piso', 'planta_asfalto'] },
+    delimitacao: { titulo: '🚧 Delimitação', chaves: ['planta_cerca', 'planta_muro'] },
+    moveis: { titulo: '🪑 Móveis e Utilidades', chaves: ['planta_fogueira', 'planta_tocha', 'planta_cama', 'planta_mesa', 'planta_cadeira', 'planta_bau', 'planta_lareira', 'planta_carro', 'planta_tv', 'planta_banco', 'planta_poste', 'planta_armario', 'planta_estante', 'planta_tapete'] },
+    materiais: { titulo: '📦 Materiais', chaves: ['madeira', 'pedra', 'ferro', 'cobre', 'ouro', 'saco_areia', 'cimento'] }
+};
+// Aba "Todos": junta as chaves de todas as outras categorias acima, na mesma
+// ordem (ferramentas -> construções -> delimitação -> móveis -> materiais).
+// Fica de fora do objeto principal até aqui pra poder referenciar as outras
+// categorias já prontas, sem precisar duplicar a lista de chaves na mão.
+CATEGORIAS_ITENS.todos = {
+    titulo: '📋 Todos os Itens',
+    chaves: Object.keys(CATEGORIAS_ITENS).flatMap(chaveCategoria => CATEGORIAS_ITENS[chaveCategoria].chaves)
+};
+
+// Ícones dos materiais (itens não-equipáveis, só exibidos na mochila).
+const ICONES_MATERIAIS = {
+    madeira: { tipo: 'emoji', valor: '🪵' },
+    pedra: { tipo: 'emoji', valor: '🪨' },
+    ferro: { tipo: 'img', valor: 'img/ferro.png', fallback: '⚙️' },
+    cobre: { tipo: 'img', valor: 'img/cobre.png', fallback: '🟠' },
+    ouro: { tipo: 'img', valor: 'img/ouro.png', fallback: '✨' },
+    saco_areia: { tipo: 'img', valor: 'img/areia.png', fallback: '🏖️' },
+    cimento: { tipo: 'img', valor: 'img/cimento.png', fallback: '🧱' }
+};
+
+// Nomes legíveis pra cada item, usados nos cards da mochila.
+const NOMES_ITENS = {
+    machado: 'Machado', picareta: 'Picareta', pa: 'Pá', peneira: 'Peneira',
+    planta_p: 'Casa Pequena', planta_m: 'Casa Média', planta_g: 'Casa Grande',
+    planta_concreto: 'Casa de Concreto', planta_torre: 'Torre-Farol', planta_piso: 'Piso de Pedra',
+    planta_asfalto: 'Piche de Asfalto', planta_cerca: 'Cerca de Madeira', planta_muro: 'Muro de Pedra',
+    planta_fogueira: 'Fogueira', planta_tocha: 'Tocha', planta_cama: 'Cama', planta_mesa: 'Mesa',
+    planta_cadeira: 'Cadeira', planta_bau: 'Baú', planta_lareira: 'Lareira', planta_carro: 'Carro',
+    planta_tv: 'Televisão', planta_banco: 'Banco de Madeira', planta_poste: 'Poste de Luz',
+    planta_armario: 'Armário', planta_estante: 'Estante de Livros', planta_tapete: 'Tapete',
+    madeira: 'Madeira', pedra: 'Pedra', ferro: 'Fragmento de Ferro', cobre: 'Fragmento de Cobre',
+    ouro: 'Pepita de Ouro', saco_areia: 'Saco de Areia', cimento: 'Cimento'
+};
+
+// Cria o elemento DOM (emoji/img/canvas) de um ícone — usada tanto pela
+// hotbar quanto pela mochila, pra garantir que o mesmo item sempre mostre o
+// mesmo desenho nos dois lugares.
+function criarElementoIcone(icone) {
+    if (icone.tipo === 'emoji') {
+        const span = document.createElement('span');
+        span.innerText = icone.valor;
+        return span;
+    }
+    if (icone.tipo === 'img') {
+        const img = document.createElement('img');
+        img.src = icone.valor;
+        img.className = 'icone-img';
+        img.onerror = function () {
+            this.onerror = null;
+            const fallback = document.createElement('span');
+            fallback.innerText = icone.fallback || '📦';
+            this.replaceWith(fallback);
+        };
+        return img;
+    }
+    if (icone.tipo === 'canvas') {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32; canvas.height = 32;
+        canvas.className = 'icone-canvas';
+        icone.valor(canvas);
+        return canvas;
+    }
+    return document.createElement('span');
+}
+
+// Item atualmente "selecionado" na mochila (aguardando o toque num slot do
+// inventário pra ser colocado/trocado lá). null = nada selecionado.
+let itemSelecionadoMochila = null;
+let abaMochilaAtiva = 'todos';
+
+// Estado de aberto/fechado da mochila. Declarado aqui em cima (não lá embaixo
+// perto de alternarMochila) porque atualizarUIAktiv() -> renderizarMochila()
+// já é chamada uma vez logo na inicialização do jogo (antes da barra de
+// hotbar existir de verdade), e essa chamada acontece bem antes de qualquer
+// código "lá embaixo" no arquivo rodar. Como mochilaAberta é declarada com
+// `let`, referenciá-la antes da linha onde ela é declarada (mesmo dentro de
+// uma função, se a função for CHAMADA cedo demais) dispara
+// "Cannot access before initialization" — por isso ela precisa nascer aqui.
+let mochilaAberta = false;
 
 // Tenta reservar um número/posição na hotbar pro item (se ele ainda não tiver).
 // Devolve true se o item já tinha (ou conseguiu) um número; false se a hotbar
@@ -204,6 +302,7 @@ let jogadorEstaNaAgua = false;
 // "tempoSegurandoClique" porque a extração de areia é CÍCLICA (dropa um saco a
 // cada 2s e continua, em vez de "completar uma vez e parar" como árvore/rocha).
 let tempoExtraindoAreia = 0;
+let tempoGarimpando = 0; // NOVO: progresso do garimpo de ouro (peneira no rio)
 
 // CORREÇÃO (mobile): identifica qual dedo/toque começou a "minerar", pra poder
 // diferenciar de um toque que na verdade é só pra girar a câmera (olhar ao
@@ -442,6 +541,53 @@ const carregadorAudio = new THREE.AudioLoader();
 const somMusicaFundo = new THREE.Audio(ouvinteAudio), somPassoNormal = new THREE.Audio(ouvinteAudio), somPassoCorrer = new THREE.Audio(ouvinteAudio), somPassoAgua = new THREE.Audio(ouvinteAudio), somLanterna = new THREE.Audio(ouvinteAudio), somPortaAbrir = new THREE.Audio(ouvinteAudio), somPortaFechar = new THREE.Audio(ouvinteAudio), somPulo = new THREE.Audio(ouvinteAudio);
 const somMachado = new THREE.Audio(ouvinteAudio), somPicareta = new THREE.Audio(ouvinteAudio), somCarroMotor = new THREE.Audio(ouvinteAudio);
 
+// ------------------------------------------------------------------
+// CONTROLE DE VOLUME (2 barras na mochila: Efeitos Sonoros e Música)
+// ------------------------------------------------------------------
+// volumeEfeitos é um MULTIPLICADOR (0 a 1) aplicado sobre o volume "base" de
+// cada efeito sonoro (passos, machado, picareta, motor do carro etc.) — cada
+// efeito continua com seu próprio volume relativo (ex: correr é mais alto que
+// andar), só a barra sobe/desce tudo junto. volumeMusica é aplicado direto,
+// já que só existe uma música de fundo.
+let volumeEfeitos = 0.8;
+let volumeMusica = 0.3;
+
+// Volume "base" (0 a 1) de cada efeito sonoro constante — o valor real
+// aplicado é sempre base * volumeEfeitos. Efeitos com volume dinâmico (motor
+// do carro, que varia com a velocidade) multiplicam por volumeEfeitos direto
+// no lugar onde já são recalculados a cada frame (ver animar()).
+const VOLUME_BASE_EFEITOS = {
+    passoNormal: 0.5, passoCorrer: 0.6, passoAgua: 0.6, lanterna: 0.4,
+    portaAbrir: 0.6, portaFechar: 0.6, pulo: 0.5, machado: 0.55, picareta: 0.55
+};
+
+// Reaplica volumeEfeitos em todos os sons constantes já carregados — chamada
+// sempre que o jogador mexe na barra de efeitos, pra ouvir a mudança na hora
+// mesmo em sons que já estão tocando em loop (passos, machado, picareta...).
+function aplicarVolumeEfeitos() {
+    if (somPassoNormal.buffer) somPassoNormal.setVolume(VOLUME_BASE_EFEITOS.passoNormal * volumeEfeitos);
+    if (somPassoCorrer.buffer) somPassoCorrer.setVolume(VOLUME_BASE_EFEITOS.passoCorrer * volumeEfeitos);
+    if (somPassoAgua.buffer) somPassoAgua.setVolume(VOLUME_BASE_EFEITOS.passoAgua * volumeEfeitos);
+    if (somLanterna.buffer) somLanterna.setVolume(VOLUME_BASE_EFEITOS.lanterna * volumeEfeitos);
+    if (somPortaAbrir.buffer) somPortaAbrir.setVolume(VOLUME_BASE_EFEITOS.portaAbrir * volumeEfeitos);
+    if (somPortaFechar.buffer) somPortaFechar.setVolume(VOLUME_BASE_EFEITOS.portaFechar * volumeEfeitos);
+    if (somPulo.buffer) somPulo.setVolume(VOLUME_BASE_EFEITOS.pulo * volumeEfeitos);
+    if (somMachado.buffer) somMachado.setVolume(VOLUME_BASE_EFEITOS.machado * volumeEfeitos);
+    if (somPicareta.buffer) somPicareta.setVolume(VOLUME_BASE_EFEITOS.picareta * volumeEfeitos);
+    listaSonsAnimaisVolume.forEach(som => som.setVolume(0.9 * volumeEfeitos));
+}
+
+// Chamadas pelas duas barras de volume na mochila (ver index.html + listener
+// mais abaixo, perto de renderizarMochila).
+function definirVolumeEfeitos(valor) {
+    volumeEfeitos = Math.min(1, Math.max(0, parseFloat(valor)));
+    aplicarVolumeEfeitos();
+}
+function definirVolumeMusica(valor) {
+    volumeMusica = Math.min(1, Math.max(0, parseFloat(valor)));
+    if (somMusicaFundo.buffer) somMusicaFundo.setVolume(volumeMusica);
+}
+
 // Som de passos dos animais: diferente dos outros sons (que são "globais",
 // tocando direto no ouvido da câmera), este é POSICIONAL — cada animal tem
 // sua própria instância de THREE.PositionalAudio presa ao próprio grupo 3D
@@ -453,21 +599,22 @@ const somMachado = new THREE.Audio(ouvinteAudio), somPicareta = new THREE.Audio(
 // existem (fila) quanto, dali em diante, em qualquer animal novo.
 let bufferPassoAnimal = null;
 const filaPositionalAnimais = [];
+const listaSonsAnimaisVolume = []; // todo THREE.PositionalAudio de passo de animal já criado
 
 let audiosCarregados = false;
 function carregarTodosOsAudios() {
     if (audiosCarregados) return;
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.musicaFundo, b => { somMusicaFundo.setBuffer(b); somMusicaFundo.setLoop(true); somMusicaFundo.setVolume(0.3); somMusicaFundo.play(); }, undefined, () => { });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.passoNormal, b => { somPassoNormal.setBuffer(b); somPassoNormal.setLoop(true); somPassoNormal.setVolume(0.5); });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.passoCorrer, b => { somPassoCorrer.setBuffer(b); somPassoCorrer.setLoop(true); somPassoCorrer.setVolume(0.6); });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.passoAgua, b => { somPassoAgua.setBuffer(b); somPassoAgua.setLoop(true); somPassoAgua.setVolume(0.6); });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.lanterna, b => { somLanterna.setBuffer(b); somLanterna.setVolume(0.4); });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.portaAbrir, b => { somPortaAbrir.setBuffer(b); somPortaAbrir.setVolume(0.6); });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.portaFechar, b => { somPortaFechar.setBuffer(b); somPortaFechar.setVolume(0.6); });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.pulo, b => { somPulo.setBuffer(b); somPulo.setVolume(0.5); });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.machado, b => { somMachado.setBuffer(b); somMachado.setLoop(true); somMachado.setVolume(0.55); }, undefined, () => { });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.picareta, b => { somPicareta.setBuffer(b); somPicareta.setLoop(true); somPicareta.setVolume(0.55); }, undefined, () => { });
-    carregadorAudio.load(ARQUIVOS_DE_AUDIO.carroMotor, b => { somCarroMotor.setBuffer(b); somCarroMotor.setLoop(true); somCarroMotor.setVolume(0.4); }, undefined, () => { });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.musicaFundo, b => { somMusicaFundo.setBuffer(b); somMusicaFundo.setLoop(true); somMusicaFundo.setVolume(volumeMusica); somMusicaFundo.play(); }, undefined, () => { });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.passoNormal, b => { somPassoNormal.setBuffer(b); somPassoNormal.setLoop(true); somPassoNormal.setVolume(VOLUME_BASE_EFEITOS.passoNormal * volumeEfeitos); });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.passoCorrer, b => { somPassoCorrer.setBuffer(b); somPassoCorrer.setLoop(true); somPassoCorrer.setVolume(VOLUME_BASE_EFEITOS.passoCorrer * volumeEfeitos); });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.passoAgua, b => { somPassoAgua.setBuffer(b); somPassoAgua.setLoop(true); somPassoAgua.setVolume(VOLUME_BASE_EFEITOS.passoAgua * volumeEfeitos); });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.lanterna, b => { somLanterna.setBuffer(b); somLanterna.setVolume(VOLUME_BASE_EFEITOS.lanterna * volumeEfeitos); });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.portaAbrir, b => { somPortaAbrir.setBuffer(b); somPortaAbrir.setVolume(VOLUME_BASE_EFEITOS.portaAbrir * volumeEfeitos); });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.portaFechar, b => { somPortaFechar.setBuffer(b); somPortaFechar.setVolume(VOLUME_BASE_EFEITOS.portaFechar * volumeEfeitos); });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.pulo, b => { somPulo.setBuffer(b); somPulo.setVolume(VOLUME_BASE_EFEITOS.pulo * volumeEfeitos); });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.machado, b => { somMachado.setBuffer(b); somMachado.setLoop(true); somMachado.setVolume(VOLUME_BASE_EFEITOS.machado * volumeEfeitos); }, undefined, () => { });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.picareta, b => { somPicareta.setBuffer(b); somPicareta.setLoop(true); somPicareta.setVolume(VOLUME_BASE_EFEITOS.picareta * volumeEfeitos); }, undefined, () => { });
+    carregadorAudio.load(ARQUIVOS_DE_AUDIO.carroMotor, b => { somCarroMotor.setBuffer(b); somCarroMotor.setLoop(true); somCarroMotor.setVolume(0.4 * volumeEfeitos); }, undefined, () => { });
     carregadorAudio.load(ARQUIVOS_DE_AUDIO.andarAnimal, b => {
         bufferPassoAnimal = b;
         // Os animais que já nasceram (antes do áudio carregar) receberam um
@@ -683,6 +830,7 @@ function atualizarUIAktiv() {
     if (itemAtivo.startsWith('planta_') && inventario[itemAtivo] <= 0) itemAtivo = 'machado';
 
     renderizarHotbar();
+    renderizarMochila();
 
     if (itemAtivo.startsWith('planta_') && inventario[itemAtivo] > 0) {
         modoConstrucaoAtivo = true;
@@ -733,6 +881,15 @@ function renderizarHotbar() {
             const img = document.createElement('img');
             img.src = cfg.icone.valor;
             img.className = 'icone-img';
+            // ROBUSTEZ: se a imagem não existir (arquivo ainda não adicionado
+            // na pasta img/), mostra um emoji de reserva em vez de deixar o
+            // ícone quebrado/vazio — evita "buracos" na hotbar no celular.
+            img.onerror = function () {
+                this.onerror = null;
+                const fallback = document.createElement('span');
+                fallback.innerText = cfg.icone.fallback || '📦';
+                this.replaceWith(fallback);
+            };
             slot.appendChild(img);
         } else if (cfg.icone.tipo === 'canvas') {
             const canvas = document.createElement('canvas');
@@ -1052,15 +1209,12 @@ window.craftarConstrucao = function (tipo, custoMadeira, custoPedra = 0, custoFe
         (inventario.cimento || 0) >= custoCimento) {
         const chaveItem = 'planta_' + tipo;
 
-        // CORREÇÃO: antes o item era criado (e a madeira/pedra gasta) mesmo
-        // sem sobrar espaço na hotbar — o item ficava "preso" no inventário,
-        // sem número, impossível de usar, e o jogador ainda perdia o
-        // material. Agora a checagem acontece ANTES de cobrar qualquer
-        // recurso: só nega (e avisa) quando esse item ainda não tem espaço
-        // reservado E os 10 espaços já estão todos ocupados por outros tipos.
-        if (!registrarItemNaHotbar(chaveItem, true)) {
-            return;
-        }
+        // Tenta reservar espaço no inventário (hotbar) automaticamente. Se os
+        // 10 slots já estiverem ocupados por outros tipos, o craft NÃO é mais
+        // bloqueado — a planta é criada normalmente e fica guardada na
+        // mochila, esperando o jogador ir lá trocá-la manualmente por outro
+        // item equipado (ver renderizarMochila/colocarItemNoSlot).
+        const foiEquipadoDireto = registrarItemNaHotbar(chaveItem, false);
 
         inventario.madeira -= custoMadeira;
         inventario.pedra -= custoPedra;
@@ -1103,11 +1257,41 @@ window.craftarConstrucao = function (tipo, custoMadeira, custoPedra = 0, custoFe
 
         atualizarUIAktiv();
         atualizarEstadoCraftingUI();
-        mostrarNotificacao("Planta criada! Equipe no inventário.", "#22c55e");
+        mostrarNotificacao(
+            foiEquipadoDireto ? "Planta criada e equipada!" : "Planta criada! Foi guardada na mochila (inventário cheio) — vá lá trocar por outro item.",
+            "#22c55e"
+        );
         processarInteracaoGeral();
     } else {
         mostrarNotificacao("Recursos insuficientes!", "#ef4444");
     }
+};
+
+// Craft da peneira: diferente de craftarConstrucao (que sempre produz um
+// "planta_<tipo>" colocável no mundo), a peneira é uma FERRAMENTA equipável
+// direto (igual machado/picareta/pá) — por isso tem sua própria função, mais
+// simples, em vez de reaproveitar craftarConstrucao.
+window.craftarPeneira = function () {
+    const CUSTO_MADEIRA = 2, CUSTO_FERRO = 1;
+
+    if (inventario.madeira < CUSTO_MADEIRA || (inventario.ferro || 0) < CUSTO_FERRO) {
+        mostrarNotificacao("Recursos insuficientes!", "#ef4444");
+        return;
+    }
+
+    inventario.madeira -= CUSTO_MADEIRA;
+    inventario.ferro -= CUSTO_FERRO;
+    inventario.peneira = (inventario.peneira || 0) + 1;
+
+    const foiEquipadoDireto = registrarItemNaHotbar('peneira', false);
+
+    atualizarUIAktiv();
+    atualizarEstadoCraftingUI();
+    mostrarNotificacao(
+        foiEquipadoDireto ? "🧺 Peneira criada e equipada!" : "🧺 Peneira criada! Foi guardada na mochila (inventário cheio) — vá lá trocar por outro item.",
+        "#22c55e"
+    );
+    processarInteracaoGeral();
 };
 
 // ============================================================
@@ -2238,13 +2422,14 @@ function criarAnimal(tipo, x, z) {
     // cuida sozinho de baixar o volume conforme o jogador se afasta.
     const somPasso = new THREE.PositionalAudio(ouvinteAudio);
     somPasso.setLoop(true);
-    somPasso.setVolume(0.9);
+    somPasso.setVolume(0.9 * volumeEfeitos);
     somPasso.setRefDistance(4.5);
     somPasso.setRolloffFactor(1.6);
     somPasso.setDistanceModel('exponential');
     grupo.add(somPasso);
     if (bufferPassoAnimal) somPasso.setBuffer(bufferPassoAnimal);
     else filaPositionalAnimais.push(somPasso);
+    listaSonsAnimaisVolume.push(somPasso); // pra barra de efeitos conseguir reajustar ele depois
 
     const dadosAnimal = {
         tipo, grupo, colisor, somPasso,
@@ -4353,7 +4538,7 @@ function atualizarDirecaoCarro(delta) {
     // uma sensação de aceleração real em vez de um loop sempre igual.
     if (somCarroMotor.isPlaying) {
         const fatorVelocidade = THREE.MathUtils.clamp(Math.abs(carroAtual.velocidade) / VELOCIDADE_MAX_CARRO, 0, 1);
-        somCarroMotor.setVolume(0.28 + fatorVelocidade * 0.32);
+        somCarroMotor.setVolume((0.28 + fatorVelocidade * 0.32) * volumeEfeitos);
         if (typeof somCarroMotor.setPlaybackRate === 'function') somCarroMotor.setPlaybackRate(0.85 + fatorVelocidade * 0.65);
     }
 
@@ -4451,7 +4636,10 @@ window.comprarProduto = function (tipo) {
     }
 
     const chaveItem = 'planta_' + tipo;
-    if (!registrarItemNaHotbar(chaveItem, true)) return;
+    // Igual ao craft: não bloqueia mais a compra por falta de espaço na
+    // hotbar — se estiver cheia, o produto vai pra mochila esperando o
+    // jogador trocar manualmente.
+    const foiEquipadoDireto = registrarItemNaHotbar(chaveItem, false);
 
     const quantidade = QUANTIDADE_POR_COMPRA[tipo] || 1;
     dinheiroJogador -= produto.preco;
@@ -4468,7 +4656,8 @@ window.comprarProduto = function (tipo) {
     atualizarUIAktiv();
     atualizarUILoja();
     const sufixoQtd = quantidade > 1 ? ' (' + quantidade + ' unidades)' : '';
-    mostrarNotificacao((EMOJI_PRODUTO[tipo] || '🛒') + ' ' + produto.nome + ' comprado' + sufixoQtd + '! Equipe-o no inventário e posicione no mundo.', '#22c55e');
+    const msgLocal = foiEquipadoDireto ? 'Equipado! Posicione no mundo.' : 'Guardado na mochila (inventário cheio) — troque por outro item lá.';
+    mostrarNotificacao((EMOJI_PRODUTO[tipo] || '🛒') + ' ' + produto.nome + ' comprado' + sufixoQtd + '! ' + msgLocal, '#22c55e');
 };
 
 // Atualiza a aba "Comprar Produtos": quantidade que o jogador já possui de
@@ -4923,32 +5112,28 @@ function animar() {
             if (txtPedra) txtPedra.innerText = inventario.pedra;
 
             // 2. Lógica de chances
+            // NOTA: ouro NÃO sai mais daqui — agora ele só vem do garimpo com
+            // a peneira no rio (ver bloco "GARIMPO DE OURO" mais abaixo). As
+            // chances foram redistribuídas entre pedra/ferro/cobre.
             let chance = Math.random();
 
-            if (chance < 0.30) {
-                // 30% de chance: Apenas as pedras
+            if (chance < 0.40) {
+                // 40% de chance: Apenas as pedras
                 mostrarNotificacao(`+${rochaSendoMinerada.pedrasDisponiveis} Pedras`);
             }
-            else if (chance < 0.60) {
-                // +30% de chance: Ganha 1 Ferro
+            else if (chance < 0.75) {
+                // +35% de chance: Ganha 1 Ferro
                 inventario.ferro = (inventario.ferro || 0) + 1;
                 const txtFerro = document.getElementById('txt-qtd-ferro');
                 if (txtFerro) txtFerro.innerText = inventario.ferro;
                 mostrarNotificacao(`+${rochaSendoMinerada.pedrasDisponiveis} Pedras e +1 Fragm. de Ferro!`);
             }
-            else if (chance < 0.85) {
-                // +25% de chance: Ganha 1 Cobre
+            else {
+                // +25% de chance restante: Ganha 1 Cobre
                 inventario.cobre = (inventario.cobre || 0) + 1;
                 const txtCobre = document.getElementById('txt-qtd-cobre');
                 if (txtCobre) txtCobre.innerText = inventario.cobre;
                 mostrarNotificacao(`+${rochaSendoMinerada.pedrasDisponiveis} Pedras e +1 Fragm. de Cobre!`);
-            }
-            else {
-                // 15% de chance restante: Ganha 1 Ouro
-                inventario.ouro = (inventario.ouro || 0) + 1;
-                const txtOuro = document.getElementById('txt-qtd-ouro');
-                if (txtOuro) txtOuro.innerText = inventario.ouro;
-                mostrarNotificacao(`+${rochaSendoMinerada.pedrasDisponiveis} Pedras e +1 Fragm. de Ouro! ✨`);
             }
 
             // 3. Remove a rocha do mundo
@@ -4980,6 +5165,44 @@ function animar() {
     // na água com outra ferramenta.
     else if (tempoExtraindoAreia > 0 && (!estaMinando || itemAtivo !== 'pa' || !jogadorEstaNaAgua)) {
         tempoExtraindoAreia = 0;
+        if (barraProgressoContainer) barraProgressoContainer.style.display = 'none';
+    }
+    // ============================================================
+    // GARIMPO DE OURO — peneira equipada + jogador dentro d'água (rio/lago).
+    // Igual à pá: cíclico, cada "procura" dura 3s. A cada procura completa:
+    //   5% de chance -> +1 Pepita de Ouro
+    //   2% de chance -> +2 Pepitas de Ouro
+    //   93% restante -> nada, só avisa que não achou nada.
+    // Continua procurando enquanto o jogador seguir segurando o clique/toque
+    // dentro d'água com a peneira equipada.
+    // ============================================================
+    else if (itemAtivo === 'peneira' && estaMinando && jogadorEstaNaAgua) {
+        tempoGarimpando += delta;
+        if (barraProgressoContainer && barraProgressoContainer.style.display !== 'block') barraProgressoContainer.style.display = 'block';
+        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoGarimpando / 3.0 * 100)) + '%';
+
+        if (tempoGarimpando >= 3.0) {
+            const sorte = Math.random();
+            if (sorte < 0.02) {
+                // 2% de chance: 2 pepitas
+                inventario.ouro = (inventario.ouro || 0) + 2;
+                mostrarNotificacao('+2 Pepitas de Ouro! ✨✨', '#facc15');
+            } else if (sorte < 0.07) {
+                // +5% de chance: 1 pepita (0.02 a 0.07 = 5% de faixa)
+                inventario.ouro = (inventario.ouro || 0) + 1;
+                mostrarNotificacao('+1 Pepita de Ouro! ✨', '#facc15');
+            } else {
+                // 93% restante: nada encontrado
+                mostrarNotificacao('Nada encontrado, apenas areia e cascalho', '#94a3b8');
+            }
+            const txtOuro = document.getElementById('txt-qtd-ouro');
+            if (txtOuro) txtOuro.innerText = inventario.ouro;
+            sincronizarQuantidadesMochila();
+            tempoGarimpando = 0; // não zera "estaMinando": continua enquanto o dedo/clique estiver segurado
+        }
+    }
+    else if (tempoGarimpando > 0 && (!estaMinando || itemAtivo !== 'peneira' || !jogadorEstaNaAgua)) {
+        tempoGarimpando = 0;
         if (barraProgressoContainer) barraProgressoContainer.style.display = 'none';
     }
     // Demolição de construções e itens colocados: funciona com QUALQUER item
@@ -5316,7 +5539,8 @@ animar();
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderizador.setSize(window.innerWidth, window.innerHeight); });
 
 // --- LÓGICA DE ABRIR/FECHAR A MOCHILA ---
-let mochilaAberta = false;
+// (mochilaAberta em si já foi declarada lá em cima, perto de CATEGORIAS_ITENS
+// — ver comentário lá explicando por quê.)
 const mochilaContainer = document.getElementById('mochila-container');
 
 function alternarMochila() {
@@ -5326,12 +5550,196 @@ function alternarMochila() {
     if (mochilaAberta) {
         mochilaContainer.style.display = 'block';
         pararSonsDeMovimento();
+        itemSelecionadoMochila = null;
+        renderizarMochila();
         if (!ehTouch) controles.unlock(); // Libera o mouse no PC para o cara fechar se quiser
     } else {
         mochilaContainer.style.display = 'none';
+        itemSelecionadoMochila = null;
         if (!ehTouch) controles.lock(); // Trava o mouse de volta no jogo
     }
 }
+
+// ============================================================
+// MOCHILA — inventário completo (categorizado) + edição manual do que fica
+// equipado no inventário/hotbar (10 slots).
+// ============================================================
+
+// Redesenha tudo dentro da mochila: a tira de 10 slots do inventário (igual
+// aos itens equipados na hotbar) e a grade de itens da aba ativa.
+function renderizarMochila() {
+    if (!mochilaAberta) return;
+
+    // --- Tira do inventário (10 slots) ---
+    const strip = document.getElementById('mochila-inventario-strip');
+    if (strip) {
+        strip.innerHTML = '';
+        for (let i = 0; i < LIMITE_HOTBAR; i++) {
+            const chave = hotbar[i];
+            const numeroTecla = i === 9 ? '0' : String(i + 1);
+            const slot = document.createElement('div');
+            slot.className = 'slot-item mochila-slot-inv';
+            slot.dataset.slotIndice = i;
+
+            const spanNumero = document.createElement('span');
+            spanNumero.className = 'numero-atalho';
+            spanNumero.innerText = numeroTecla;
+            slot.appendChild(spanNumero);
+
+            if (chave && (inventario[chave] || 0) > 0) {
+                const cfg = CONFIG_ITENS_HOTBAR[chave];
+                if (cfg) slot.appendChild(criarElementoIcone(cfg.icone));
+                const spanQtd = document.createElement('span');
+                spanQtd.className = 'qtd';
+                spanQtd.innerText = inventario[chave];
+                slot.appendChild(spanQtd);
+                if (chave === itemSelecionadoMochila) slot.classList.add('selecionado');
+            } else {
+                slot.classList.add('vazio');
+            }
+
+            strip.appendChild(slot);
+        }
+    }
+
+    // --- Grade de itens da aba ativa ---
+    const grid = document.getElementById('mochila-grid');
+    if (grid) {
+        grid.innerHTML = '';
+        const categoria = CATEGORIAS_ITENS[abaMochilaAtiva];
+        let algumItem = false;
+
+        (categoria ? categoria.chaves : []).forEach(chave => {
+            const qtd = inventario[chave] || 0;
+            if (qtd <= 0) return;
+            algumItem = true;
+
+            const ehEquipavel = !!CONFIG_ITENS_HOTBAR[chave];
+            const card = document.createElement('div');
+            card.className = 'slot-item mochila-card' + (ehEquipavel ? ' equipavel' : ' material');
+            card.dataset.item = chave;
+
+            const icone = ehEquipavel ? CONFIG_ITENS_HOTBAR[chave].icone : ICONES_MATERIAIS[chave];
+            if (icone) card.appendChild(criarElementoIcone(icone));
+
+            const spanNome = document.createElement('span');
+            spanNome.className = 'mochila-card-nome';
+            spanNome.innerText = NOMES_ITENS[chave] || chave;
+            card.appendChild(spanNome);
+
+            const spanQtd = document.createElement('span');
+            spanQtd.className = 'qtd';
+            spanQtd.innerText = qtd;
+            card.appendChild(spanQtd);
+
+            const indiceHotbar = hotbar.indexOf(chave);
+            if (indiceHotbar > -1) {
+                const badge = document.createElement('span');
+                badge.className = 'mochila-badge-equipado';
+                badge.innerText = 'Slot ' + (indiceHotbar === 9 ? '0' : indiceHotbar + 1);
+                card.appendChild(badge);
+            }
+
+            if (chave === itemSelecionadoMochila) card.classList.add('selecionado');
+
+            grid.appendChild(card);
+        });
+
+        if (!algumItem) {
+            const vazio = document.createElement('div');
+            vazio.className = 'mochila-vazio';
+            vazio.innerText = 'Nenhum item nessa categoria ainda.';
+            grid.appendChild(vazio);
+        }
+    }
+
+    const dica = document.getElementById('mochila-dica');
+    if (dica) {
+        dica.innerText = itemSelecionadoMochila
+            ? `"${NOMES_ITENS[itemSelecionadoMochila] || itemSelecionadoMochila}" selecionado — toque num slot do inventário para colocar lá.`
+            : 'Toque num item abaixo e depois num slot do inventário pra equipar ou trocar.';
+    }
+}
+
+// Troca (ou equipa) o item selecionado da mochila no slot de índice `indice`
+// do inventário/hotbar. Se já houver outro item nesse slot, ele volta a ficar
+// só na mochila (não equipado) — é uma troca de posições. Se o item
+// selecionado já estava equipado em OUTRO slot, os dois trocam de lugar.
+function colocarItemNoSlot(chaveItem, indice) {
+    if (!CONFIG_ITENS_HOTBAR[chaveItem]) return; // materiais não são equipáveis
+    if ((inventario[chaveItem] || 0) <= 0) return;
+
+    const indiceAtual = hotbar.indexOf(chaveItem);
+    const itemQueEstavaNoSlot = hotbar[indice];
+
+    if (indiceAtual > -1) {
+        // O item já estava equipado em outro slot: troca os dois de lugar.
+        hotbar[indiceAtual] = itemQueEstavaNoSlot;
+    }
+    hotbar[indice] = chaveItem;
+
+    if (itemAtivo === itemQueEstavaNoSlot || itemAtivo === chaveItem) {
+        // Se a ferramenta/planta que estava na mão saiu do inventário,
+        // volta pro machado pra não deixar o jogador "com a mão vazia".
+        if (hotbar.indexOf(itemAtivo) === -1) itemAtivo = 'machado';
+    }
+
+    mostrarNotificacao('🎒 ' + (NOMES_ITENS[chaveItem] || chaveItem) + ' equipado!', '#22c55e');
+    renderizarHotbar();
+    renderizarMochila();
+}
+
+// Listener único (delegado) pra tira de inventário da mochila.
+document.getElementById('mochila-inventario-strip')?.addEventListener('click', (e) => {
+    const slot = e.target.closest('.mochila-slot-inv');
+    if (!slot) return;
+    const indice = parseInt(slot.dataset.slotIndice, 10);
+
+    if (itemSelecionadoMochila) {
+        colocarItemNoSlot(itemSelecionadoMochila, indice);
+        itemSelecionadoMochila = null;
+    } else if (!slot.classList.contains('vazio')) {
+        // Nenhum item selecionado ainda: tocar num slot ocupado seleciona
+        // esse item, permitindo movê-lo pra outro slot ou trocar com outro.
+        itemSelecionadoMochila = hotbar[indice];
+        renderizarMochila();
+    }
+});
+
+// Listener único (delegado) pra grade de itens da mochila.
+document.getElementById('mochila-grid')?.addEventListener('click', (e) => {
+    const card = e.target.closest('.mochila-card');
+    if (!card || !card.classList.contains('equipavel')) return;
+    const chave = card.dataset.item;
+
+    if (itemSelecionadoMochila === chave) {
+        itemSelecionadoMochila = null; // toca de novo no mesmo item = desseleciona
+        renderizarMochila();
+        return;
+    }
+
+    const indiceLivre = hotbar.indexOf(null);
+    if (indiceLivre > -1 && hotbar.indexOf(chave) === -1) {
+        // Há espaço livre no inventário: equipa direto, sem precisar
+        // escolher um slot manualmente.
+        colocarItemNoSlot(chave, indiceLivre);
+        return;
+    }
+
+    // Inventário cheio (ou item já equipado): seleciona pra o jogador
+    // escolher em qual slot colocar/trocar.
+    itemSelecionadoMochila = chave;
+    renderizarMochila();
+});
+
+// Abas da mochila (Ferramentas / Construções / Delimitação / Móveis / Materiais)
+document.getElementById('mochila-abas')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.aba-mochila');
+    if (!btn) return;
+    abaMochilaAtiva = btn.dataset.abaMochila;
+    document.querySelectorAll('.aba-mochila').forEach(b => b.classList.toggle('ativa', b === btn));
+    renderizarMochila();
+});
 
 // Eventos de clique para fechar e botão mobile
 document.getElementById('btn-fechar-mochila')?.addEventListener('click', alternarMochila);
@@ -5354,10 +5762,9 @@ function atualizarDinheiroUI() {
 // Mantém os números da mochila (🪵🪨 + ferro/cobre/ouro) sincronizados com o
 // inventário depois de qualquer operação de venda.
 function sincronizarQuantidadesMochila() {
-    Object.keys(PRECOS_RECURSOS).forEach(recurso => {
-        const elMochila = document.getElementById('txt-qtd-' + recurso);
-        if (elMochila) elMochila.innerText = inventario[recurso] || 0;
-    });
+    // A mochila agora é renderizada dinamicamente (ver renderizarMochila),
+    // então basta re-renderizar ela (só faz algo se estiver aberta).
+    renderizarMochila();
 }
 
 function calcularTotalCarrinho() {

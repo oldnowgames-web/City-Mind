@@ -57,7 +57,22 @@
         <div class="painel-pause">
             <h2 class="titulo-pause">JOGO PAUSADO</h2>
             <div class="linha-divisoria"></div>
-            
+
+            <div class="audio-controles">
+                <div class="audio-controles-linha">
+                    <span class="audio-controles-icone">🔊</span>
+                    <span class="audio-controles-nome">Efeitos Sonoros</span>
+                    <input type="range" id="slider-volume-efeitos" min="0" max="1" step="0.01" value="0.8" oninput="definirVolumeEfeitos(this.value); document.getElementById('valor-volume-efeitos').innerText = Math.round(this.value*100)+'%';">
+                    <span class="audio-controles-valor" id="valor-volume-efeitos">80%</span>
+                </div>
+                <div class="audio-controles-linha">
+                    <span class="audio-controles-icone">🎵</span>
+                    <span class="audio-controles-nome">Música de Fundo</span>
+                    <input type="range" id="slider-volume-musica" min="0" max="1" step="0.01" value="0.3" oninput="definirVolumeMusica(this.value); document.getElementById('valor-volume-musica').innerText = Math.round(this.value*100)+'%';">
+                    <span class="audio-controles-valor" id="valor-volume-musica">30%</span>
+                </div>
+            </div>
+
             <div class="menu-pause-opcoes">
                 <button id="btn-retomar" class="btn-pause">▶ Continuar Jogando</button>
                 <button id="btn-controles-pause" class="btn-pause">🕹️ Como Jogar</button>
@@ -67,9 +82,9 @@
     </div>
 
     <div id="modal-controles" class="overlay-tela" style="display: none;">
-        <div class="conteudo-start">
+        <div class="conteudo-start conteudo-controles">
             <h2 style="color: #fbbf24; margin-top: 0;">🕹️ CONTROLES</h2>
-            <div style="text-align: left; line-height: 1.8; margin: 20px 0; font-size: 0.95rem; color: #d1d5db;">
+            <div class="controles-lista">
                 <p><b>W, A, S, D:</b> Movimentar</p>
                 <p><b>Mouse:</b> Olhar ao redor</p>
                 <p><b>Clique Esquerdo (segurar):</b> Cortar árvores (com machado) / Minerar (com picareta)</p>
@@ -97,15 +112,22 @@
             <h2>🎒 Sua Mochila</h2>
             <button id="btn-fechar-mochila">X</button>
         </div>
-        <div class="mochila-grid">
-            <div class="slot-item" id="slot-madeira"><span style="font-size: 26px;">🪵</span><span class="qtd" id="txt-qtd-madeira">0</span></div>
-            <div class="slot-item" id="slot-pedra"><span style="font-size: 26px;">🪨</span><span class="qtd" id="txt-qtd-pedra">0</span></div>
-            <div class="slot-item" id="slot-ferro"><img style="height: 65%; width: 90%;" src="img/ferro.png" alt=""><span class="qtd" id="txt-qtd-ferro">0</span></div>
-            <div class="slot-item" id="slot-cobre"><img style="height: 65%; width: 90%;" src="img/cobre.png" alt=""><span class="qtd" id="txt-qtd-cobre">0</span></div>
-            <div class="slot-item" id="slot-ouro"><img style="height: 65%; width: 90%;" src="img/ouro.png" alt=""><span class="qtd" id="txt-qtd-ouro">0</span></div>
-            <div class="slot-item" id="slot-saco-areia"><img style="height: 65%; width: 90%;" src="img/areia.png" alt=""><span class="qtd" id="txt-qtd-saco-areia">0</span></div>
-            <div class="slot-item" id="slot-cimento"><img style="height: 65%; width: 90%;" src="img/cimento.png" alt=""><span class="qtd" id="txt-qtd-cimento">0</span></div>
+
+        <div class="mochila-dica" id="mochila-dica">Toque num item abaixo e depois num slot do inventário pra equipar ou trocar.</div>
+
+        <div class="mochila-inventario-label">Inventário (equipado — até 10)</div>
+        <div class="mochila-inventario-strip" id="mochila-inventario-strip"></div>
+
+        <div class="mochila-abas" id="mochila-abas">
+            <button class="aba-mochila ativa" data-aba-mochila="todos">📋 Todos</button>
+            <button class="aba-mochila" data-aba-mochila="ferramentas">🛠️ Ferramentas</button>
+            <button class="aba-mochila" data-aba-mochila="construcoes">🏠 Construções</button>
+            <button class="aba-mochila" data-aba-mochila="delimitacao">🚧 Delimitação</button>
+            <button class="aba-mochila" data-aba-mochila="moveis">🪑 Móveis</button>
+            <button class="aba-mochila" data-aba-mochila="materiais">📦 Materiais</button>
         </div>
+
+        <div class="mochila-grid" id="mochila-grid"></div>
     </div>
 
     <div id="menu-crafting">
@@ -269,6 +291,15 @@
                 <div class="card-nome">Poste de Luz</div>
                 <div class="card-custos"><span class="custo-chip" data-recurso="pedra">🪨 5</span></div>
                 <button onclick="craftarConstrucao('poste', 0, 5)">Criar Planta</button>
+            </div>
+            <div class="card-craft" id="craft-peneira" data-custo-madeira="2" data-custo-ferro="1">
+                <div class="card-icone"><img src="img/peneira.png" alt="Peneira" class="icone-craft-img" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerText:'🧺',style:'font-size:32px'}))"></div>
+                <div class="card-nome">Peneira</div>
+                <div class="card-custos">
+                    <span class="custo-chip" data-recurso="madeira">🪵 2</span>
+                    <span class="custo-chip" data-recurso="ferro"><img src="img/ferro.png" alt="" class="custo-icone-img" onerror="this.style.display='none'"> 1</span>
+                </div>
+                <button onclick="craftarPeneira()">Criar Ferramenta</button>
             </div>
         </div>
 
@@ -518,7 +549,7 @@
         </div>
     </div>
 
-    <script src="script.js?v=16"></script>
+    <script src="script.js?v=20"></script>
 </body>
 </html>
 
