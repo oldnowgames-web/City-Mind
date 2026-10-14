@@ -889,3 +889,117 @@ body {
     font-size: 1.8rem; cursor: pointer;
 }
 .reflexo-celula.ativa { background: #a855f7; }
+
+/* =========================================================
+   NOVOS SISTEMAS: missões, diário, save, melhorias, acabamentos, luzes
+   ========================================================= */
+.crafting-abas { flex-wrap: wrap; }
+.aba-craft { min-width: 90px; }
+
+.info-save { margin-top: 14px; font-size: 0.82rem; color: #86efac; }
+
+/* HUD da missão atual (canto superior esquerdo) */
+#hud-missao {
+    position: fixed; top: 15px; left: 15px; z-index: 10; max-width: min(270px, 38vw);
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(251,191,36,0.55); border-left: 4px solid #fbbf24;
+    border-radius: 8px; padding: 8px 11px; color: #f3f4f6; font-family: sans-serif; pointer-events: none;
+}
+.hud-missao-titulo { font-weight: 800; font-size: 0.82rem; color: #fbbf24; }
+.hud-missao-desc { font-size: 0.74rem; color: #d1d5db; margin-top: 3px; line-height: 1.3; }
+.hud-missao-barra { height: 6px; background: rgba(255,255,255,0.15); border-radius: 4px; margin-top: 6px; overflow: hidden; }
+.hud-missao-barra > div { height: 100%; background: linear-gradient(90deg, #22c55e, #84cc16); transition: width 0.3s; }
+.hud-missao-prog { font-size: 0.7rem; color: #9ca3af; text-align: right; margin-top: 2px; }
+.modo-touch #hud-missao { max-width: 190px; padding: 5px 8px; }
+.modo-touch .hud-missao-desc { display: none; }
+
+/* Aviso grande (missão concluída / conquista) */
+#aviso-grande {
+    position: fixed; top: 80px; left: 50%; transform: translate(-50%, -30px); opacity: 0; pointer-events: none;
+    z-index: 1200; display: flex; align-items: center; gap: 14px; min-width: 260px; max-width: 90vw;
+    background: rgba(15,23,42,0.94); border: 2px solid #fbbf24; border-radius: 12px; padding: 12px 18px; color: #fff;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6); transition: opacity 0.4s, transform 0.4s;
+}
+#aviso-grande.visivel { opacity: 1; transform: translate(-50%, 0); }
+.aviso-icone { font-size: 2rem; }
+.aviso-titulo { font-weight: 800; font-size: 0.95rem; color: #fbbf24; }
+.aviso-texto { font-size: 0.82rem; color: #e5e7eb; margin-top: 2px; }
+
+/* Ícone de "salvo" */
+#icone-save {
+    position: fixed; bottom: 150px; right: 18px; z-index: 12; background: rgba(0,0,0,0.6); color: #86efac;
+    border-radius: 8px; padding: 5px 10px; font-size: 0.75rem; font-family: sans-serif; opacity: 0; transition: opacity 0.4s; pointer-events: none;
+}
+#icone-save.visivel { opacity: 1; }
+
+/* Seletor de cor dos pisos/paredes */
+#hud-cor-acabamento {
+    position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%); z-index: 11; align-items: center; gap: 10px;
+    background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; padding: 7px 14px;
+    color: #f3f4f6; font-family: sans-serif; font-size: 0.85rem; pointer-events: none;
+}
+.cor-amostra { width: 22px; height: 22px; border-radius: 5px; border: 2px solid #fff; display: inline-block; }
+.cor-dica { font-size: 0.72rem; color: #9ca3af; }
+#btn-cor-mobile { background: rgba(236,72,153,0.5); }
+
+/* Botão do diário no celular */
+#btn-diario-mobile { position: fixed; top: 15px; left: calc(50% + 48px); z-index: 20; padding: 8px 14px; }
+
+/* Painel do diário */
+.painel-diario-conteudo {
+    width: min(94vw, 600px); max-height: 88vh; overflow-y: auto; box-sizing: border-box; color: #fff;
+    background: linear-gradient(180deg, rgba(31,41,55,0.98), rgba(15,20,30,0.99)); border: 3px solid #fbbf24; border-radius: 14px;
+    touch-action: pan-y; overscroll-behavior: contain; box-shadow: 0 0 40px rgba(0,0,0,0.85);
+}
+.diario-abas { display: flex; gap: 8px; padding: 14px 22px 0; flex-wrap: wrap; }
+.aba-diario {
+    flex: 1; min-width: 100px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+    color: #cbd5e1; padding: 9px 10px; border-radius: 9px; cursor: pointer; font-weight: 700; font-size: 0.85rem;
+}
+.aba-diario:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.aba-diario.ativa { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #1f2937; border-color: #fbbf24; }
+#diario-conteudo { padding: 14px 22px 22px; }
+.diario-resumo { text-align: center; color: #9ca3af; font-size: 0.82rem; margin-bottom: 12px; }
+.diario-item { display: flex; gap: 12px; padding: 10px 12px; border-radius: 10px; margin-bottom: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
+.diario-item.feita { border-color: rgba(34,197,94,0.5); background: rgba(34,197,94,0.08); }
+.diario-item.ativa { border-color: #fbbf24; background: rgba(251,191,36,0.1); }
+.diario-item.bloqueada { opacity: 0.55; }
+.diario-item-icone { font-size: 1.4rem; }
+.diario-item-corpo { flex: 1; min-width: 0; }
+.diario-item-titulo { font-weight: 800; font-size: 0.92rem; }
+.diario-item-desc { font-size: 0.8rem; color: #cbd5e1; margin-top: 2px; }
+.diario-item-recompensa { font-size: 0.75rem; color: #fbbf24; margin-top: 4px; }
+.diario-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.conquista-card { text-align: center; padding: 12px 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); }
+.conquista-card.ok { border-color: #fbbf24; background: rgba(251,191,36,0.1); }
+.conquista-card.trancada { opacity: 0.5; }
+.conquista-icone { font-size: 1.8rem; }
+.conquista-titulo { font-weight: 800; font-size: 0.82rem; margin-top: 4px; }
+.conquista-desc { font-size: 0.72rem; color: #9ca3af; margin-top: 2px; }
+.diario-stats { display: flex; flex-direction: column; gap: 6px; }
+.diario-stat { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.05); font-size: 0.85rem; }
+.diario-stat b { color: #4ade80; }
+
+/* Melhorias de ferramentas e acabamentos (Mesa de Trabalho) */
+.melhoria-nivel { font-size: 0.78rem; color: #fbbf24; font-weight: 700; letter-spacing: 1px; text-align: center; }
+.melhoria-efeito { font-size: 0.72rem; color: #cbd5e1; text-align: center; line-height: 1.3; }
+.card-melhoria.nivel-maximo { border-color: #fbbf24; }
+.card-melhoria.nivel-maximo button { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #1f2937; }
+.dica-acabamentos { grid-column: 1 / -1; font-size: 0.78rem; color: #9ca3af; text-align: center; }
+
+/* Cor do slot da hotbar conforme o nível da ferramenta */
+.slot-item.nv-2 { border-color: #94a3b8; }
+.slot-item.nv-3 { border-color: #f97316; }
+.slot-item.nv-4 { border-color: #facc15; box-shadow: 0 0 8px rgba(250,204,21,0.6); }
+
+
+/* =========================================================
+   ÍCONES SVG (substituem os emojis) — ver icones.js
+   ========================================================= */
+.ic { width: 1.15em; height: 1.15em; display: inline-block; vertical-align: -0.2em; flex: none; overflow: visible; }
+.btn-fechar-x .ic, .btn-touch .ic { vertical-align: -0.18em; }
+.audio-controles-icone .ic { width: 1.5em; height: 1.5em; }
+.aviso-icone .ic, .conquista-icone .ic { width: 1.1em; height: 1.1em; vertical-align: middle; }
+.diario-item-icone .ic { width: 1.1em; height: 1.1em; }
+.memoria-carta .ic { width: 1.7em; height: 1.7em; vertical-align: middle; }
+.reflexo-celula .ic, .velha-celula .ic { width: 1.4em; height: 1.4em; vertical-align: middle; }
+.melhoria-nivel .ic { width: 1.1em; height: .8em; vertical-align: -0.05em; }

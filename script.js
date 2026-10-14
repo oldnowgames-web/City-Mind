@@ -1,3 +1,74 @@
+// ============================================================
+// SALVAMENTO + SEMENTE DO MUNDO (declarado bem no topo de propósito)
+// ============================================================
+// O mundo (árvores e rochas) é gerado no carregamento do script, ANTES do
+// jogador apertar PLAY. Pra o salvamento funcionar, o mapa precisa nascer
+// IGUAL toda vez que o mesmo jogo salvo for aberto — por isso a posição/tipo
+// de árvores e rochas agora vem de um gerador pseudoaleatório com SEMENTE
+// (rngMundo), e a semente fica guardada no save. Os outros usos de
+// Math.random() (cor das folhas, partículas, animais...) continuam normais.
+const CHAVE_SAVE = 'citymind_save_v1';
+let impedirAutoSave = false; // true enquanto o jogo está sendo recarregado/apagado (evita regravar o save)
+
+function lerSaveDoDisco() {
+    try {
+        const texto = localStorage.getItem(CHAVE_SAVE);
+        if (!texto) return null;
+        const dados = JSON.parse(texto);
+        return (dados && dados.versao === 1) ? dados : null;
+    } catch (erro) { return null; }
+}
+const saveInicial = lerSaveDoDisco();
+
+// mulberry32: gerador pequeno, rápido e determinístico a partir de uma semente.
+function criarGeradorAleatorio(semente) {
+    let a = semente >>> 0;
+    return function () {
+        a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+const SEMENTE_MUNDO = (saveInicial && Number.isFinite(saveInicial.sementeMundo))
+    ? saveInicial.sementeMundo
+    : Math.floor(Math.random() * 2147483647);
+const rngMundo = criarGeradorAleatorio(SEMENTE_MUNDO);
+
+// Cada árvore/rocha "natural" ganha um id fixo (na ordem de criação). É assim
+// que o save sabe quais já foram cortadas/mineradas.
+let contadorIdMundo = 0;
+const idsRemovidosMundo = new Set();
+
+// Ponto onde o jogador nasce num jogo novo: terra firme na frente da cabana.
+// (O ponto antigo, 0/15, ficava DENTRO DO RIO — e como as rochas não checavam
+// água nem o ponto de nascimento, uma rocha podia nascer exatamente em cima do
+// jogador e prendê-lo no lugar.)
+const PONTO_SPAWN_X = -19, PONTO_SPAWN_Z = -15;
+
+// Dados que precisam existir cedo (a hotbar já é desenhada no carregamento).
+const FERRAMENTAS_MELHORAVEIS = ['machado', 'picareta', 'pa', 'peneira'];
+const niveisFerramentas = { machado: 1, picareta: 1, pa: 1, peneira: 1 };
+
+// Pisos e paredes de materiais variados. A COR é escolhida na hora de colocar.
+const TIPOS_ACABAMENTO = {
+    piso_madeira: { nome: 'Piso de Madeira', categoria: 'piso', material: 'madeira', pacote: 10, custo: { madeira: 10 } },
+    piso_tijolo: { nome: 'Piso de Tijolo', categoria: 'piso', material: 'tijolo', pacote: 10, custo: { pedra: 8 } },
+    piso_ceramica: { nome: 'Piso Cerâmico', categoria: 'piso', material: 'ceramica', pacote: 10, custo: { pedra: 6, saco_areia: 3 } },
+    piso_marmore: { nome: 'Piso de Mármore', categoria: 'piso', material: 'marmore', pacote: 10, custo: { pedra: 12, saco_areia: 4 } },
+    parede_madeira: { nome: 'Parede de Madeira', categoria: 'parede', material: 'madeira', pacote: 5, custo: { madeira: 12 } },
+    parede_tijolo: { nome: 'Parede de Tijolo', categoria: 'parede', material: 'tijolo', pacote: 5, custo: { pedra: 12 } },
+    parede_concreto: { nome: 'Parede de Concreto', categoria: 'parede', material: 'concreto', pacote: 5, custo: { pedra: 4, saco_areia: 4, cimento: 20 } },
+    parede_vidro: { nome: 'Parede de Vidro', categoria: 'parede', material: 'vidro', pacote: 5, custo: { saco_areia: 8, ferro: 1 } }
+};
+const PALETA_ACABAMENTOS = [
+    { nome: 'Natural', hex: null }, { nome: 'Branco', hex: '#f5f5f4' }, { nome: 'Cinza', hex: '#9ca3af' }, { nome: 'Preto', hex: '#374151' },
+    { nome: 'Vermelho', hex: '#dc2626' }, { nome: 'Laranja', hex: '#ea580c' }, { nome: 'Amarelo', hex: '#eab308' }, { nome: 'Verde', hex: '#16a34a' },
+    { nome: 'Azul', hex: '#2563eb' }, { nome: 'Roxo', hex: '#7e22ce' }, { nome: 'Rosa', hex: '#ec4899' }, { nome: 'Marrom', hex: '#92400e' }
+];
+const COR_NATURAL_MATERIAL = { madeira: '#c08a52', tijolo: '#b9573e', ceramica: '#eceae4', marmore: '#f4f4f5', concreto: '#a3a3a3', vidro: '#bfe3ff' };
+let indiceCorAcabamento = 0;
+
 // --- 🎵 CONFIGURAÇÃO DOS SEUS ARQUIVOS MP3 e IMAGENS 🎵 ---
 const ARQUIVOS_DE_AUDIO = {
     musicaFundo: 'sounds/craftprintMusic.mp3', passoNormal: 'sounds/walk.mp3',
@@ -49,7 +120,10 @@ let inventario = {
     ouro: 0,
     saco_areia: 0, // NOVO: extraído de rios/lagos com a pá
     cimento: 0,    // NOVO: comprado na loja (dinheiro + pedra + ferro)
-    planta_concreto: 0 // NOVO: Casa de Concreto (1 andar, mesma largura da casa G, telhado igual ao dela)
+    planta_concreto: 0, // NOVO: Casa de Concreto (1 andar, mesma largura da casa G, telhado igual ao dela)
+    semente: 0, // NOVO: cai (às vezes) ao cortar árvores; plantada no chão vira árvore
+    planta_piso_madeira: 0, planta_piso_tijolo: 0, planta_piso_ceramica: 0, planta_piso_marmore: 0,
+    planta_parede_madeira: 0, planta_parede_tijolo: 0, planta_parede_concreto: 0, planta_parede_vidro: 0
 };
 
 // --- SISTEMA DE ECONOMIA (VENDA DE RECURSOS NO COMPUTADOR) ---
@@ -93,11 +167,11 @@ const QUANTIDADE_POR_COMPRA = { asfalto: 10, cimento: 150 };
 // formato aqui e escrever a função correspondente.
 // ------------------------------------------------------------------
 const MINIGAMES = [
-    { titulo: 'Cobrinha', emoji: '🐍', descricao: 'Setas ou WASD', iniciar: (c) => iniciarJogoCobrinha(c) },
-    { titulo: 'Jogo da Velha', emoji: '❌⭕', descricao: '2 jogadores', iniciar: (c) => iniciarJogoVelha(c) },
-    { titulo: 'Jogo da Memória', emoji: '🧠', descricao: 'Ache os pares', iniciar: (c) => iniciarJogoMemoria(c) },
-    { titulo: 'Pong', emoji: '🏓', descricao: 'Mouse ou W/S', iniciar: (c) => iniciarJogoPong(c) },
-    { titulo: 'Reflexo', emoji: '⚡', descricao: 'Clique rápido, 30s', iniciar: (c) => iniciarJogoReflexo(c) }
+    { titulo: 'Cobrinha', emoji: '[[cobra]]', descricao: 'Setas ou WASD', iniciar: (c) => iniciarJogoCobrinha(c) },
+    { titulo: 'Jogo da Velha', emoji: '[[xis]][[circulo]]', descricao: '2 jogadores', iniciar: (c) => iniciarJogoVelha(c) },
+    { titulo: 'Jogo da Memória', emoji: '[[cerebro]]', descricao: 'Ache os pares', iniciar: (c) => iniciarJogoMemoria(c) },
+    { titulo: 'Pong', emoji: '[[pong]]', descricao: 'Mouse ou W/S', iniciar: (c) => iniciarJogoPong(c) },
+    { titulo: 'Reflexo', emoji: '[[raio]]', descricao: 'Clique rápido, 30s', iniciar: (c) => iniciarJogoReflexo(c) }
 ];
 
 // Dinheiro acumulado pelo jogador (mostrado no HUD do canto inferior esquerdo).
@@ -126,7 +200,8 @@ const CONFIG_ITENS_HOTBAR = {
     machado: { icone: { tipo: 'emoji', valor: '🪓' } },
     picareta: { icone: { tipo: 'emoji', valor: '⛏️' } },
     pa: { icone: { tipo: 'emoji', valor: '🪏' }},
-    peneira: { icone: { tipo: 'img', valor: 'img/peneira.png', fallback: '🧺' } },
+    peneira: { icone: { tipo: 'img', valor: 'img/peneira.png', fallback: '[[peneira]]' } },
+    semente: { icone: { tipo: 'canvas', valor: (c) => desenharIconeSVG(c, 'semente') } },
     // Os ícones abaixo eram emojis (📜🏡 etc.) e agora são desenhos em canvas —
     // reaproveitam a MESMA função usada nos cards da mesa de trabalho, então a
     // hotbar e a mesa de trabalho sempre mostram o mesmo desenho pra cada item.
@@ -154,6 +229,10 @@ const CONFIG_ITENS_HOTBAR = {
     planta_tapete: { icone: { tipo: 'canvas', valor: (c) => desenharIconeTapete(c) }, rotulo: 'Tapete' },
     planta_asfalto: { icone: { tipo: 'canvas', valor: desenharIconeAsfalto }, rotulo: 'Asfalto' }
 };
+// Pisos e paredes novos (ícones desenhados por desenharIconeAcabamento)
+Object.keys(TIPOS_ACABAMENTO).forEach(chave => {
+    CONFIG_ITENS_HOTBAR['planta_' + chave] = { icone: { tipo: 'canvas', valor: (c) => desenharIconeAcabamento(c, chave) } };
+});
 
 // ------------------------------------------------------------------
 // SISTEMA DE CATEGORIAS DA MOCHILA
@@ -165,35 +244,38 @@ const CONFIG_ITENS_HOTBAR = {
 // tratarCliqueMochila). Materiais (madeira, pedra, ferro...) são só exibidos,
 // não são equipáveis.
 const CATEGORIAS_ITENS = {
-    ferramentas: { titulo: '🛠️ Ferramentas', chaves: ['machado', 'picareta', 'pa', 'peneira'] },
-    construcoes: { titulo: '🏠 Construções', chaves: ['planta_p', 'planta_m', 'planta_g', 'planta_concreto', 'planta_torre', 'planta_piso', 'planta_asfalto'] },
-    delimitacao: { titulo: '🚧 Delimitação', chaves: ['planta_cerca', 'planta_muro'] },
-    moveis: { titulo: '🪑 Móveis e Utilidades', chaves: ['planta_fogueira', 'planta_tocha', 'planta_cama', 'planta_mesa', 'planta_cadeira', 'planta_bau', 'planta_lareira', 'planta_carro', 'planta_tv', 'planta_banco', 'planta_poste', 'planta_armario', 'planta_estante', 'planta_tapete'] },
-    materiais: { titulo: '📦 Materiais', chaves: ['madeira', 'pedra', 'ferro', 'cobre', 'ouro', 'saco_areia', 'cimento'] }
+    ferramentas: { titulo: '[[ferramentas]] Ferramentas', chaves: ['machado', 'picareta', 'pa', 'peneira', 'semente'] },
+    construcoes: { titulo: '[[casa]] Construções', chaves: ['planta_p', 'planta_m', 'planta_g', 'planta_concreto', 'planta_torre', 'planta_piso', 'planta_asfalto'] },
+    delimitacao: { titulo: '[[barreira]] Delimitação', chaves: ['planta_cerca', 'planta_muro'] },
+    moveis: { titulo: '[[cadeira]] Móveis e Utilidades', chaves: ['planta_fogueira', 'planta_tocha', 'planta_cama', 'planta_mesa', 'planta_cadeira', 'planta_bau', 'planta_lareira', 'planta_carro', 'planta_tv', 'planta_banco', 'planta_poste', 'planta_armario', 'planta_estante', 'planta_tapete'] },
+    acabamentos: { titulo: '[[paleta]] Acabamentos', chaves: Object.keys(TIPOS_ACABAMENTO).map(k => 'planta_' + k) },
+    materiais: { titulo: '[[caixa]] Materiais', chaves: ['madeira', 'pedra', 'ferro', 'cobre', 'ouro', 'saco_areia', 'cimento'] }
 };
 // Aba "Todos": junta as chaves de todas as outras categorias acima, na mesma
 // ordem (ferramentas -> construções -> delimitação -> móveis -> materiais).
 // Fica de fora do objeto principal até aqui pra poder referenciar as outras
 // categorias já prontas, sem precisar duplicar a lista de chaves na mão.
 CATEGORIAS_ITENS.todos = {
-    titulo: '📋 Todos os Itens',
+    titulo: '[[lista]] Todos os Itens',
     chaves: Object.keys(CATEGORIAS_ITENS).flatMap(chaveCategoria => CATEGORIAS_ITENS[chaveCategoria].chaves)
 };
 
 // Ícones dos materiais (itens não-equipáveis, só exibidos na mochila).
 const ICONES_MATERIAIS = {
-    madeira: { tipo: 'emoji', valor: '🪵' },
-    pedra: { tipo: 'emoji', valor: '🪨' },
-    ferro: { tipo: 'img', valor: 'img/ferro.png', fallback: '⚙️' },
-    cobre: { tipo: 'img', valor: 'img/cobre.png', fallback: '🟠' },
-    ouro: { tipo: 'img', valor: 'img/ouro.png', fallback: '✨' },
-    saco_areia: { tipo: 'img', valor: 'img/areia.png', fallback: '🏖️' },
-    cimento: { tipo: 'img', valor: 'img/cimento.png', fallback: '🧱' }
+    madeira: { tipo: 'canvas', valor: (c) => desenharIconeSVG(c, 'madeira') },
+    pedra: { tipo: 'canvas', valor: (c) => desenharIconeSVG(c, 'pedra') },
+    ferro: { tipo: 'img', valor: 'img/ferro.png', fallback: '[[ferro]]' },
+    cobre: { tipo: 'img', valor: 'img/cobre.png', fallback: '[[cobre]]' },
+    ouro: { tipo: 'img', valor: 'img/ouro.png', fallback: '[[ouro]]' },
+    saco_areia: { tipo: 'img', valor: 'img/areia.png', fallback: '[[areia]]' },
+    cimento: { tipo: 'img', valor: 'img/cimento.png', fallback: '[[cimento]]' }
 };
 
 // Nomes legíveis pra cada item, usados nos cards da mochila.
 const NOMES_ITENS = {
-    machado: 'Machado', picareta: 'Picareta', pa: 'Pá', peneira: 'Peneira',
+    machado: 'Machado', picareta: 'Picareta', pa: 'Pá', peneira: 'Peneira', semente: 'Semente de Árvore',
+    planta_piso_madeira: 'Piso de Madeira', planta_piso_tijolo: 'Piso de Tijolo', planta_piso_ceramica: 'Piso Cerâmico', planta_piso_marmore: 'Piso de Mármore',
+    planta_parede_madeira: 'Parede de Madeira', planta_parede_tijolo: 'Parede de Tijolo', planta_parede_concreto: 'Parede de Concreto', planta_parede_vidro: 'Parede de Vidro',
     planta_p: 'Casa Pequena', planta_m: 'Casa Média', planta_g: 'Casa Grande',
     planta_concreto: 'Casa de Concreto', planta_torre: 'Torre-Farol', planta_piso: 'Piso de Pedra',
     planta_asfalto: 'Piche de Asfalto', planta_cerca: 'Cerca de Madeira', planta_muro: 'Muro de Pedra',
@@ -221,7 +303,7 @@ function criarElementoIcone(icone) {
         img.onerror = function () {
             this.onerror = null;
             const fallback = document.createElement('span');
-            fallback.innerText = icone.fallback || '📦';
+            fallback.innerText = icone.fallback || '[[caixa]]';
             this.replaceWith(fallback);
         };
         return img;
@@ -350,6 +432,7 @@ const MATERIAL_POR_CONSTRUCAO = {
     tapete: 'madeira',
     asfalto: 'pedra'
 };
+Object.keys(TIPOS_ACABAMENTO).forEach(k => { MATERIAL_POR_CONSTRUCAO[k] = TIPOS_ACABAMENTO[k].material === 'madeira' ? 'madeira' : 'pedra'; });
 
 // --- SISTEMA DE ESCADAS DA CASA ---
 let listaEscadas = [];
@@ -740,6 +823,8 @@ if (btnMenuMobile) {
 // --- CONTROLE DE POINTER LOCK E ESC (PC) ---
 if (typeof controles !== 'undefined' && controles) {
     controles.addEventListener('lock', () => {
+        // tira o foco de sliders/botões pra o teclado voltar a mover o personagem
+        if (document.activeElement && typeof document.activeElement.blur === 'function' && document.activeElement !== document.body) document.activeElement.blur();
         if (menuPause) menuPause.style.display = 'none';
         if (telaStart) telaStart.style.display = 'none';
         if (modalControles) modalControles.style.display = 'none';
@@ -753,6 +838,7 @@ if (typeof controles !== 'undefined' && controles) {
             if (typeof menuCraftingAberto !== 'undefined' && menuCraftingAberto) return;
             if (typeof menuLojaAberto !== 'undefined' && menuLojaAberto) return;
             if (typeof menuTVAberto !== 'undefined' && menuTVAberto) return;
+            if (typeof diarioAberto !== 'undefined' && diarioAberto) return;
 
             if (menuPause) menuPause.style.display = 'flex';
             jogoPausado = true;
@@ -783,6 +869,7 @@ window.addEventListener('keydown', (e) => {
             fecharMenuTV();
             return;
         }
+        if (diarioAberto) { fecharDiario(); return; }
 
         if (!ehTouch && typeof controles !== 'undefined' && controles) {
             // Se o menu estiver aberto, travar o mouse de volta retoma o jogo!
@@ -846,6 +933,7 @@ function atualizarUIAktiv() {
         if (typeof btnPlantaMaisPerto !== 'undefined' && btnPlantaMaisPerto) btnPlantaMaisPerto.style.display = 'none';
         if (typeof btnPlantaMaisLonge !== 'undefined' && btnPlantaMaisLonge) btnPlantaMaisLonge.style.display = 'none';
     }
+    atualizarHudCorAcabamento();
 }
 
 // Redesenha a hotbar do zero a partir do array `hotbar`. Só aparecem slots de
@@ -887,7 +975,7 @@ function renderizarHotbar() {
             img.onerror = function () {
                 this.onerror = null;
                 const fallback = document.createElement('span');
-                fallback.innerText = cfg.icone.fallback || '📦';
+                fallback.innerText = cfg.icone.fallback || '[[caixa]]';
                 this.replaceWith(fallback);
             };
             slot.appendChild(img);
@@ -901,7 +989,8 @@ function renderizarHotbar() {
 
         const spanQtd = document.createElement('span');
         spanQtd.className = 'qtd';
-        spanQtd.innerText = cfg.rotulo ? `${cfg.rotulo} ${qtdAtual}` : qtdAtual;
+        spanQtd.innerText = FERRAMENTAS_MELHORAVEIS.includes(itemChave) ? 'Nv ' + niveisFerramentas[itemChave] : (cfg.rotulo ? `${cfg.rotulo} ${qtdAtual}` : qtdAtual);
+        if (FERRAMENTAS_MELHORAVEIS.includes(itemChave)) slot.classList.add('nv-' + niveisFerramentas[itemChave]);
         slot.appendChild(spanQtd);
 
         inventarioHudEl.appendChild(slot);
@@ -1012,12 +1101,16 @@ window.addEventListener('keydown', (e) => {
     if (modoConstrucaoAtivo && hologramaVisual) {
         if (e.code === 'KeyR') { anguloRotacaoHolograma += Math.PI / 2; }
         if (e.code === 'KeyT') { anguloRotacaoHolograma -= Math.PI / 2; }
+        if (TIPOS_ACABAMENTO[tipoCasaParaConstruir]) {
+            if (e.code === 'KeyC') ciclarCorAcabamento(1);
+            if (e.code === 'KeyV') ciclarCorAcabamento(-1);
+        }
     }
 });
 
 window.addEventListener('mousedown', (e) => {
     // 1. Trocamos o 'instrucoes' por '!jogoIniciado'
-    if (menuCraftingAberto || menuLojaAberto || menuTVAberto || !jogoIniciado || dirigindoCarro) return;
+    if (menuCraftingAberto || menuLojaAberto || menuTVAberto || diarioAberto || !jogoIniciado || dirigindoCarro) return;
     if (modoConstrucaoAtivo) { executarConstrucaoReal(); }
     // CORREÇÃO: segurar o clique agora inicia a "mineração/demolição" com
     // QUALQUER item equipado, não só machado/picareta/pá — cortar árvore e
@@ -1037,7 +1130,7 @@ window.addEventListener('mouseup', (e) => {
 
 window.addEventListener('touchstart', (e) => {
     // 3. Trocamos o 'instrucoes' por '!jogoIniciado' no mobile também
-    if (menuCraftingAberto || menuLojaAberto || menuTVAberto || !jogoIniciado || dirigindoCarro) return;
+    if (menuCraftingAberto || menuLojaAberto || menuTVAberto || diarioAberto || !jogoIniciado || dirigindoCarro) return;
     const joystickZone = document.getElementById('zona-joystick');
     if (e.target.tagName === 'BUTTON' || (joystickZone && joystickZone.contains(e.target))) return;
     // Segurando uma planta pra construir, o toque é só pra olhar ao redor —
@@ -1102,7 +1195,11 @@ const noKeyDown = (evento) => {
     // Enquanto o jogador está digitando num campo (ex.: quantidade na loja),
     // deixa o teclado funcionar normalmente em vez de mover o personagem ou
     // fechar o menu sem querer ao digitar a letra "e".
-    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+    // CORREÇÃO (jogador "não consegue se mexer"): antes QUALQUER <input> com foco bloqueava o teclado —
+    // inclusive os sliders de volume do menu de pausa, que mantêm o foco depois de arrastados. Agora só
+    // campos de digitar (texto/número) bloqueiam; sliders e botões não.
+    const elFoco = document.activeElement;
+    if (elFoco && (elFoco.tagName === 'TEXTAREA' || (elFoco.tagName === 'INPUT' && elFoco.type !== 'range' && elFoco.type !== 'checkbox' && elFoco.type !== 'button'))) return;
     if ((menuCraftingAberto || menuLojaAberto || menuTVAberto) && evento.code !== 'KeyE') return;
     switch (evento.code) { case 'KeyW': moverFrente = true; break; case 'KeyS': moverTras = true; break; case 'KeyA': moverEsquerda = true; break; case 'KeyD': moverDireita = true; break; case 'ShiftLeft': correndo = true; break; case 'KeyF': if (dirigindoCarro) { alternarFaroisCarro(); } else { alternarLanterna(); } break; case 'KeyE': processarInteracaoGeral(); break; case 'Space': executarPulo(); break; }
 };
@@ -1110,6 +1207,8 @@ const noKeyUp = (evento) => {
     switch (evento.code) { case 'KeyW': moverFrente = false; break; case 'KeyS': moverTras = false; break; case 'KeyA': moverEsquerda = false; break; case 'KeyD': moverDireita = false; break; case 'ShiftLeft': correndo = false; break; }
 };
 document.addEventListener('keydown', noKeyDown); document.addEventListener('keyup', noKeyUp);
+// Se a janela perder o foco com uma tecla apertada, o keyup nunca chega: solta tudo aqui.
+window.addEventListener('blur', () => { moverFrente = moverTras = moverEsquerda = moverDireita = false; correndo = false; });
 
 function alternarLanterna() { lanternaLigada = !lanternaLigada; luzLanterna.visible = lanternaLigada; if (somLanterna.buffer) somLanterna.play(); }
 function executarPulo() { if (podeSaltar) { velocidade.y = FORCA_SALTO; podeSaltar = false; pararSonsDeMovimento(); if (somPulo.buffer) somPulo.play(); } }
@@ -1254,9 +1353,12 @@ window.craftarConstrucao = function (tipo, custoMadeira, custoPedra = 0, custoFe
         if (tipo === 'armario') inventario.planta_armario++;
         if (tipo === 'estante') inventario.planta_estante++;
         if (tipo === 'concreto') inventario.planta_concreto++;
+        if (TIPOS_ACABAMENTO[tipo]) inventario[chaveItem] = (inventario[chaveItem] || 0) + TIPOS_ACABAMENTO[tipo].pacote;
 
         atualizarUIAktiv();
         atualizarEstadoCraftingUI();
+        registrarEstatistica('itensCraftados');
+        salvarJogo();
         mostrarNotificacao(
             foiEquipadoDireto ? "Planta criada e equipada!" : "Planta criada! Foi guardada na mochila (inventário cheio) — vá lá trocar por outro item.",
             "#22c55e"
@@ -1287,8 +1389,10 @@ window.craftarPeneira = function () {
 
     atualizarUIAktiv();
     atualizarEstadoCraftingUI();
+    registrarEstatistica('itensCraftados');
+    salvarJogo();
     mostrarNotificacao(
-        foiEquipadoDireto ? "🧺 Peneira criada e equipada!" : "🧺 Peneira criada! Foi guardada na mochila (inventário cheio) — vá lá trocar por outro item.",
+        foiEquipadoDireto ? "[[peneira]] Peneira criada e equipada!" : "[[peneira]] Peneira criada! Foi guardada na mochila (inventário cheio) — vá lá trocar por outro item.",
         "#22c55e"
     );
     processarInteracaoGeral();
@@ -1315,7 +1419,7 @@ function atualizarEstadoCraftingUI() {
     if (elSaldoMadeira) elSaldoMadeira.innerText = inventario.madeira;
     if (elSaldoPedra) elSaldoPedra.innerText = inventario.pedra;
 
-    document.querySelectorAll('.card-craft').forEach(card => {
+    document.querySelectorAll('.card-craft:not(.card-melhoria)').forEach(card => {
         const custoMadeira = parseInt(card.dataset.custoMadeira || '0', 10);
         const custoPedra = parseInt(card.dataset.custoPedra || '0', 10);
         const faltaMadeira = inventario.madeira < custoMadeira;
@@ -1345,6 +1449,7 @@ function atualizarEstadoCraftingUI() {
             chip.classList.toggle('falta', !!faltaPorRecurso[recurso]);
         });
     });
+    renderizarMelhorias();
 }
 
 // Abas da mesa de trabalho (Construções / Utilidades)
@@ -1724,11 +1829,15 @@ const luzFogo = new THREE.PointLight(0xff7700, 2.0, 10); luzFogo.position.set(fo
 const grupoNuvens = new THREE.Group(); const matNuven = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
 for (let n = 0; n < 12; n++) { const nuvem = new THREE.Group(); const pedacos = Math.floor(Math.random() * 3 + 3); for (let p = 0; p < pedacos; p++) { const b = new THREE.Mesh(new THREE.BoxGeometry(6 + p * 2, 3, 5), matNuven); b.position.set(p * 2.5 - pedacos, Math.random() * 0.5, (Math.random() - 0.5) * 2); nuvem.add(b); } nuvem.position.set((Math.random() - 0.5) * 300, 45 + Math.random() * 15, (Math.random() - 0.5) * 300); grupoNuvens.add(nuvem); } cena.add(grupoNuvens);
 
-function criarArvoreDiferenciada(x, z) {
-    if (Math.abs(x - ponteX) < 8 && Math.abs(z - ponteZ) < 56) return; if (Math.abs(x - cabanaX) < 8 && Math.abs(z - cabanaZ) < 8) return;
+function criarArvoreDiferenciada(x, z, opc) {
+    // opc = { tipo, mod } quando é uma árvore que nasceu de semente (ou veio de um save): sem sorteio e sem as zonas proibidas.
+    if (!opc) {
+        if (Math.abs(x - ponteX) < 8 && Math.abs(z - ponteZ) < 56) return; if (Math.abs(x - cabanaX) < 8 && Math.abs(z - cabanaZ) < 8) return;
+        if (Math.hypot(x - PONTO_SPAWN_X, z - PONTO_SPAWN_Z) < 10) return; // nunca nasce em cima do ponto de nascimento
+    }
     const h = obterAlturaTerreno(x, z); if (h <= NIVEL_DA_AGUA) return;
-    const grupoA = new THREE.Group(); const tipo = Math.floor(Math.random() * 3); let madeiraDrop = 3;
-    const mod = 0.65 + Math.random() * 1.0, altT = (tipo === 2 ? 5.5 : 4.5) * mod, rT = (tipo === 1 ? 0.6 : 0.4) * mod;
+    const grupoA = new THREE.Group(); const tipo = opc ? opc.tipo : Math.floor(rngMundo() * 3); let madeiraDrop = 3;
+    const mod = opc ? opc.mod : 0.65 + rngMundo() * 1.0, altT = (tipo === 2 ? 5.5 : 4.5) * mod, rT = (tipo === 1 ? 0.6 : 0.4) * mod;
     const tronco = new THREE.Mesh(new THREE.CylinderGeometry(rT * 0.7, rT, altT, 12), matTroncoGlobal); tronco.position.y = altT / 2; tronco.castShadow = true; tronco.receiveShadow = true; grupoA.add(tronco);
     const cFolha = (tipo === 0) ? new THREE.Color().setHSL(0.32 + Math.random() * 0.03, 0.7, 0.22) : (tipo === 1 ? new THREE.Color().setHSL(0.28 + Math.random() * 0.04, 0.65, 0.26) : new THREE.Color().setHSL(0.35 + Math.random() * 0.02, 0.55, 0.3));
     const mFolhas = new THREE.MeshStandardMaterial({ color: cFolha, roughness: 0.8, flatShading: true });
@@ -1736,19 +1845,22 @@ function criarArvoreDiferenciada(x, z) {
     else if (tipo === 1) { for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.DodecahedronGeometry((2.0 + Math.random() * 0.6) * mod, 1), mFolhas); f.position.set((Math.random() - 0.5) * 1.2 * mod, altT + (i * 0.8 * mod), (Math.random() - 0.5) * 1.2 * mod); f.castShadow = true; grupoA.add(f); } }
     else { const f = new THREE.Mesh(new THREE.CylinderGeometry(1.2 * mod, 1.6 * mod, 3.5 * mod, 8), mFolhas); f.position.y = altT + (1.75 * mod); f.castShadow = true; grupoA.add(f); }
     grupoA.position.set(x, h, z); cena.add(grupoA);
-    const objDados = { x: x, z: z, raio: 1.3 * mod, topoY: h + altT + (3.0 * mod), meshRaiz: grupoA, eArvore: true, madeirasDisponiveis: madeiraDrop };
+    const objDados = { x: x, z: z, raio: 1.3 * mod, topoY: h + altT + (3.0 * mod), meshRaiz: grupoA, eArvore: true, madeirasDisponiveis: madeiraDrop, id: opc ? undefined : contadorIdMundo++ };
     grupoA.userData = { dadosArvore: objDados }; objetosMundo.push(objDados); objetosRaycast.push(grupoA);
+    return objDados;
 }
 function criarRocha(x, z) {
     if (Math.abs(x - ponteX) < 6 && Math.abs(z - ponteZ) < 52) return; if (Math.abs(x - cabanaX) < 7 && Math.abs(z - cabanaZ) < 7) return;
-    const s = Math.random() * 2 + 1.5, r = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 1), new THREE.MeshStandardMaterial({ color: 0x6e6e6e, roughness: 0.9 }));
+    if (Math.hypot(x - PONTO_SPAWN_X, z - PONTO_SPAWN_Z) < 10) return; // nunca nasce em cima do ponto de nascimento
+    if (obterAlturaTerreno(x, z) <= NIVEL_DA_AGUA + 0.3) return;      // nada de rocha boiando no rio
+    const s = rngMundo() * 2 + 1.5, r = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 1), new THREE.MeshStandardMaterial({ color: 0x6e6e6e, roughness: 0.9 }));
     const h = obterAlturaTerreno(x, z); r.position.set(x, h + (s * 0.3), z); r.castShadow = true; cena.add(r);
 
-    const objDados = { x: x, z: z, raio: s * 1.2, topoY: h + (s * 1.1), meshRaiz: r, eRocha: true, pedrasDisponiveis: 2 };
+    const objDados = { x: x, z: z, raio: s * 1.2, topoY: h + (s * 1.1), meshRaiz: r, eRocha: true, pedrasDisponiveis: 2, id: contadorIdMundo++ };
     r.userData = { dadosRocha: objDados };
     objetosMundo.push(objDados); objetosRaycast.push(r);
 }
-for (let i = 0; i < 140; i++) { let x = (Math.random() - 0.5) * 340, z = (Math.random() - 0.5) * 340; if (Math.abs(x) > 12 || Math.abs(z) > 12) { if (Math.random() > 0.35) criarArvoreDiferenciada(x, z); else criarRocha(x, z); } }
+for (let i = 0; i < 140; i++) { let x = (rngMundo() - 0.5) * 340, z = (rngMundo() - 0.5) * 340; if (Math.abs(x) > 12 || Math.abs(z) > 12) { if (rngMundo() > 0.35) criarArvoreDiferenciada(x, z); else criarRocha(x, z); } }
 
 // ============================================================
 // FAUNA: modelos 3D + IA de vagueio + animação (ursos, lobos, coelhos, cervos)
@@ -2690,7 +2802,7 @@ function atualizarAnimais(delta) {
 // incluía esse deslocamento — as duas descolavam, e a colisão acabava sendo
 // checada num ponto do mapa diferente de onde o jogador via de verdade que
 // estava. Agora os dois casos fazem a mesma coisa.
-controles.getObject().position.set(0, obterAlturaTerreno(0, 0) + ALTURA_JOGADOR, 15);
+controles.getObject().position.set(PONTO_SPAWN_X, obterAlturaTerreno(PONTO_SPAWN_X, PONTO_SPAWN_Z) + ALTURA_JOGADOR, PONTO_SPAWN_Z); // (posicionarJogadorNoSpawn() refina isso depois)
 
 // --- SISTEMA AVANÇADO DE CONSTRUÇÃO DE CASAS ---
 function criarEscadaDeParede(grupoPai, x, y, z, altura) {
@@ -2743,6 +2855,11 @@ const DIMENSOES_CONSTRUCAO = {
     armario: { largura: 1.0, profundidade: 0.5, altura: 1.8 },
     estante: { largura: 1.1, profundidade: 0.4, altura: 1.9 }
 };
+Object.keys(TIPOS_ACABAMENTO).forEach(k => {
+    DIMENSOES_CONSTRUCAO[k] = TIPOS_ACABAMENTO[k].categoria === 'piso'
+        ? { largura: 2, profundidade: 2, altura: 0.08 } // fino, como o asfalto
+        : { largura: 2, profundidade: 0.2, altura: 2.8 };
+});
 function obterDimensoes(tipo) { return DIMENSOES_CONSTRUCAO[tipo] || DIMENSOES_CONSTRUCAO.p; }
 
 // Tipos que ganham o indicador amarelo de porta no holograma (só as casas)
@@ -2772,6 +2889,18 @@ function ativarHolograma(tipo) {
         );
         indicadorPorta.position.set(0, 1.4, profundidade / 2);
         hologramaVisual.add(indicadorPorta);
+    }
+
+    // Pisos/paredes novos: um bloco colorido translúcido mostra a cor escolhida.
+    if (TIPOS_ACABAMENTO[tipo]) {
+        const previa = new THREE.Mesh(
+            new THREE.BoxGeometry(largura, altura, profundidade),
+            new THREE.MeshBasicMaterial({ color: new THREE.Color(obterCorAcabamentoAtual(tipo)), transparent: true, opacity: 0.55 })
+        );
+        previa.position.y = altura / 2;
+        previa.userData.preview = true;
+        hologramaVisual.add(previa);
+        hologramaVisual.userData.preview = previa;
     }
 
     anguloRotacaoHolograma = 0;
@@ -3240,9 +3369,18 @@ function construirTochaFisica(posX, posY, posZ) {
     // sombra) e a primeira compilação do shader trava o frame. Fogueira e
     // lareira usam a mesma PointLight só que SEM sombra — a tocha agora segue
     // o mesmo padrão.
-    const luzTocha = new THREE.PointLight(0xff9900, 1.5, 12);
-    luzTocha.position.y = 1.5;
-    grupoTocha.add(luzTocha);
+    // NOVO: a tocha só "acende" à noite. A luz de verdade vem do pool de luzes
+    // (ver registrarFonteLuz); aqui só o brilho e a cor da chama mudam.
+    const brilhoTocha = criarSpriteBrilho(0xff9a2a, 3.2);
+    brilhoTocha.position.y = 1.45;
+    grupoTocha.add(brilhoTocha);
+    registrarFonteLuz({
+        x: posX, y: posY + 1.5, z: posZ, cor: 0xff9900, intensidade: 1.7, distancia: 13, flicker: true,
+        aplicar: (n, t) => {
+            matFogo.color.setRGB(0.3 + 0.7 * n, 0.17 + 0.5 * n, 0.06 * (1 - n));
+            brilhoTocha.material.opacity = n * (0.75 + 0.15 * Math.sin(t * 11));
+        }
+    });
 
     // Posiciona o conjunto inteiro no mapa
     grupoTocha.position.set(posX, posY, posZ);
@@ -3435,10 +3573,6 @@ function construirLareiraFisica(posX, posY, posZ, rotacaoY) {
     // Fogo contido dentro da lareira: mesma lógica de luz + partículas da fogueira,
     // mas em coordenadas de mundo (não do grupo) porque o loop de animação em
     // listaFogueirasDinamicas espera posições absolutas.
-    const luzFogo = new THREE.PointLight(0xff7700, 1.8, 8);
-    luzFogo.position.set(posX, posY + 0.5, posZ);
-    cena.add(luzFogo);
-
     const countPart = 20;
     const geoPart = new THREE.BufferGeometry();
     const posPart = new Float32Array(countPart * 3);
@@ -3455,8 +3589,21 @@ function construirLareiraFisica(posX, posY, posZ, rotacaoY) {
     }));
     cena.add(sistemaFogo);
 
+    // NOVO: a lareira só acende à noite (fogo, brilho e luz de verdade).
+    const brilhoLareira = criarSpriteBrilho(0xff7a1a, 3.6);
+    brilhoLareira.position.set(0, 0.7, 0.1);
+    grupo.add(brilhoLareira);
+    registrarFonteLuz({
+        x: posX, y: posY + 0.6, z: posZ, cor: 0xff7700, intensidade: 2.2, distancia: 11, flicker: true,
+        aplicar: (n, t) => {
+            sistemaFogo.visible = n > 0.04;
+            sistemaFogo.material.opacity = 0.85 * n;
+            brilhoLareira.material.opacity = n * (0.7 + 0.15 * Math.sin(t * 9));
+        }
+    });
+
     listaFogueirasDinamicas.push({
-        luz: luzFogo,
+        luz: null,
         sistemaParticulas: sistemaFogo,
         dadosParticulas: dadosPart,
         xOriginal: posX,
@@ -3577,7 +3724,7 @@ function criarModeloTorre() {
         lenteFarol.material.color.setHex(ligado ? 0xfff6d5 : 0x555555);
         lenteFarol.material.emissive.setHex(ligado ? 0xffdd66 : 0x000000);
         lenteFarol.material.emissiveIntensity = ligado ? 1.4 : 0;
-        mostrarNotificacao(ligado ? '🔦 Farol ligado!' : 'Farol desligado.', ligado ? '#22c55e' : '#9ca3af');
+        mostrarNotificacao(ligado ? '[[lanterna]] Farol ligado!' : 'Farol desligado.', ligado ? '#22c55e' : '#9ca3af');
     };
     // Marca só o grupo com a flag/estado — a busca por interação sobe pelos
     // pais a partir de qualquer peça atingida pelo raycast (ver mais abaixo
@@ -3640,9 +3787,16 @@ function construirPosteFisica(posX, posY, posZ) {
     grupoPoste.add(capuz);
 
     // Luz real (fica acesa sempre, mesmo padrão de intensidade da tocha/fogueira)
-    const luzPoste = new THREE.PointLight(0xffcc66, 1.2, 10);
-    luzPoste.position.y = 0.3 + 2.6 + 0.2;
-    grupoPoste.add(luzPoste);
+    const brilhoPoste = criarSpriteBrilho(0xffcc66, 4.2);
+    brilhoPoste.position.y = 0.3 + 2.6 + 0.2;
+    grupoPoste.add(brilhoPoste);
+    registrarFonteLuz({
+        x: posX, y: posY + 3.1, z: posZ, cor: 0xffcc66, intensidade: 1.5, distancia: 14, flicker: false,
+        aplicar: (n) => {
+            matVidro.emissiveIntensity = 0.05 + 1.25 * n;
+            brilhoPoste.material.opacity = n * 0.8;
+        }
+    });
 
     grupoPoste.position.set(posX, posY, posZ);
     cena.add(grupoPoste);
@@ -3934,6 +4088,7 @@ function abrirMenuTV() {
     if (menuTVAberto || menuCraftingAberto || menuLojaAberto || dirigindoCarro) return;
 
     menuTVAberto = true;
+    registrarEstatistica('tvsLigadas');
     renderizarGradeJogos();
     if (menuTV) menuTV.style.display = 'block';
     pararSonsDeMovimento();
@@ -4095,9 +4250,9 @@ function iniciarJogoCobrinha(container) {
 // --- ❌⭕ Jogo da Velha (2 jogadores, mesmo dispositivo) ---
 function iniciarJogoVelha(container) {
     container.innerHTML =
-        '<div class="jogo-status" id="velha-status">Vez de: ❌</div>' +
+        '<div class="jogo-status" id="velha-status">Vez de: [[xis]]</div>' +
         '<div class="velha-grid" id="velha-grid"></div>' +
-        '<button class="jogo-btn-reiniciar" id="velha-reiniciar">🔄 Reiniciar</button>';
+        '<button class="jogo-btn-reiniciar" id="velha-reiniciar">[[refresh]] Reiniciar</button>';
 
     const grid = container.querySelector('#velha-grid');
     const statusEl = container.querySelector('#velha-status');
@@ -4116,7 +4271,7 @@ function iniciarJogoVelha(container) {
         tabuleiro.forEach((valor, indice) => {
             const cel = document.createElement('div');
             cel.className = 'velha-celula';
-            cel.innerText = valor === 'X' ? '❌' : valor === 'O' ? '⭕' : '';
+            cel.innerText = valor === 'X' ? '[[xis]]' : valor === 'O' ? '[[circulo]]' : '';
             cel.addEventListener('click', () => jogar(indice));
             grid.appendChild(cel);
         });
@@ -4129,17 +4284,17 @@ function iniciarJogoVelha(container) {
         if (resultado === 'empate') {
             fimDeJogo = true; statusEl.innerText = 'Empate! Clique em Reiniciar';
         } else if (resultado) {
-            fimDeJogo = true; statusEl.innerText = (resultado === 'X' ? '❌' : '⭕') + ' venceu! Clique em Reiniciar';
+            fimDeJogo = true; statusEl.innerText = (resultado === 'X' ? '[[xis]]' : '[[circulo]]') + ' venceu! Clique em Reiniciar';
         } else {
             vez = vez === 'X' ? 'O' : 'X';
-            statusEl.innerText = 'Vez de: ' + (vez === 'X' ? '❌' : '⭕');
+            statusEl.innerText = 'Vez de: ' + (vez === 'X' ? '[[xis]]' : '[[circulo]]');
         }
     }
     function reiniciar() {
         tabuleiro = Array(9).fill(null);
         vez = 'X';
         fimDeJogo = false;
-        statusEl.innerText = 'Vez de: ❌';
+        statusEl.innerText = 'Vez de: [[xis]]';
         desenhar();
     }
 
@@ -4154,11 +4309,11 @@ function iniciarJogoMemoria(container) {
     container.innerHTML =
         '<div class="jogo-status" id="memoria-status">Jogadas: 0</div>' +
         '<div class="memoria-grid" id="memoria-grid"></div>' +
-        '<button class="jogo-btn-reiniciar" id="memoria-reiniciar">🔄 Reiniciar</button>';
+        '<button class="jogo-btn-reiniciar" id="memoria-reiniciar">[[refresh]] Reiniciar</button>';
 
     const grid = container.querySelector('#memoria-grid');
     const statusEl = container.querySelector('#memoria-status');
-    const EMOJIS = ['🍎', '🍌', '🍇', '🍉', '🍕', '🎈', '⚽', '🚀'];
+    const EMOJIS = ['[[maca]]', '[[banana]]', '[[uva]]', '[[melancia]]', '[[pizza]]', '[[balao]]', '[[bola]]', '[[foguete]]'];
 
     let cartas, viradas, combinadas, jogadas, travado, timeoutId;
 
@@ -4175,7 +4330,7 @@ function iniciarJogoMemoria(container) {
             const virada = viradas.includes(indice) || combinadas.includes(indice);
             const carta = document.createElement('div');
             carta.className = 'memoria-carta' + (virada ? ' virada' : '');
-            carta.innerText = virada ? emoji : '❓';
+            carta.innerText = virada ? emoji : '[[interrogacao]]';
             carta.addEventListener('click', () => virar(indice));
             grid.appendChild(carta);
         });
@@ -4196,7 +4351,7 @@ function iniciarJogoMemoria(container) {
             travado = false;
             desenhar();
             if (combinadas.length === cartas.length) {
-                statusEl.innerText = '🎉 Você venceu em ' + jogadas + ' jogadas!';
+                statusEl.innerText = '[[festa]] Você venceu em ' + jogadas + ' jogadas!';
             }
         } else {
             timeoutId = setTimeout(() => {
@@ -4316,7 +4471,7 @@ function iniciarJogoReflexo(container) {
     container.innerHTML =
         '<div class="jogo-status" id="reflexo-status">Clique em "Começar" pra jogar!</div>' +
         '<div class="reflexo-grid" id="reflexo-grid"></div>' +
-        '<button class="jogo-btn-reiniciar" id="reflexo-comecar">▶ Começar (30s)</button>';
+        '<button class="jogo-btn-reiniciar" id="reflexo-comecar">[[play]] Começar (30s)</button>';
 
     const grid = container.querySelector('#reflexo-grid');
     const statusEl = container.querySelector('#reflexo-status');
@@ -4329,7 +4484,7 @@ function iniciarJogoReflexo(container) {
         for (let i = 0; i < TOTAL_CELULAS; i++) {
             const cel = document.createElement('div');
             cel.className = 'reflexo-celula' + (i === celulaAtiva ? ' ativa' : '');
-            cel.innerText = i === celulaAtiva ? '🎯' : '';
+            cel.innerText = i === celulaAtiva ? '[[alvo]]' : '';
             cel.addEventListener('click', () => acertar(i));
             grid.appendChild(cel);
         }
@@ -4350,7 +4505,7 @@ function iniciarJogoReflexo(container) {
         clearInterval(intervaloRelogio);
         celulaAtiva = -1;
         desenharGrid();
-        statusEl.innerText = '⏱️ Tempo esgotado! Pontuação final: ' + pontos;
+        statusEl.innerText = '[[relogio]] Tempo esgotado! Pontuação final: ' + pontos;
     }
     function comecar() {
         pontos = 0; tempoRestante = 30; jogando = true;
@@ -4401,7 +4556,7 @@ function entrarNoCarro(dadosCarro) {
     pararSonsDeMovimento();
     if (somCarroMotor.buffer && !somCarroMotor.isPlaying) somCarroMotor.play();
 
-    mostrarNotificacao('🚗 Você entrou no carro! W/A/S/D para dirigir — pressione E para sair.', '#38bdf8');
+    mostrarNotificacao('[[carro]] Você entrou no carro! W/A/S/D para dirigir — pressione E para sair.', '#38bdf8');
 }
 
 // Sai do carro: posiciona o jogador de pé, do lado do carro (não no meio dele),
@@ -4450,7 +4605,7 @@ function alternarFaroisCarro() {
     }
 
     if (somLanterna && somLanterna.buffer) somLanterna.play();
-    mostrarNotificacao(ligado ? '🚗 Faróis ligados' : '🚗 Faróis desligados', '#38bdf8');
+    mostrarNotificacao(ligado ? '[[carro]] Faróis ligados' : '[[carro]] Faróis desligados', '#38bdf8');
 }
 
 // Física + câmera do carro, chamada todo frame (dentro de animar()) enquanto
@@ -4626,7 +4781,8 @@ window.comprarProduto = function (tipo) {
         atualizarDinheiroUI();
         atualizarUILoja();
         atualizarEstadoCraftingUI();
-        mostrarNotificacao('🧱 ' + produto.nome + ' comprado! (+' + (QUANTIDADE_POR_COMPRA.cimento || 1) + ' sacos)', '#22c55e');
+        mostrarNotificacao('[[cimento]] ' + produto.nome + ' comprado! (+' + (QUANTIDADE_POR_COMPRA.cimento || 1) + ' sacos)', '#22c55e');
+        registrarEstatistica('produtosComprados'); salvarJogo();
         return;
     }
 
@@ -4651,13 +4807,17 @@ window.comprarProduto = function (tipo) {
         filaCoresTapete.push(corTapeteSelecionada);
     }
 
-    const EMOJI_PRODUTO = { carro: '🚗', tv: '📺', tapete: '🟥', asfalto: '⬛' };
+    const EMOJI_PRODUTO = { carro: '[[carro]]', tv: '[[tv]]', tapete: '[[quadrado_vermelho]]', asfalto: '[[quadrado_preto]]' };
     atualizarDinheiroUI();
     atualizarUIAktiv();
     atualizarUILoja();
     const sufixoQtd = quantidade > 1 ? ' (' + quantidade + ' unidades)' : '';
     const msgLocal = foiEquipadoDireto ? 'Equipado! Posicione no mundo.' : 'Guardado na mochila (inventário cheio) — troque por outro item lá.';
-    mostrarNotificacao((EMOJI_PRODUTO[tipo] || '🛒') + ' ' + produto.nome + ' comprado' + sufixoQtd + '! ' + msgLocal, '#22c55e');
+    mostrarNotificacao((EMOJI_PRODUTO[tipo] || '[[carrinho]]') + ' ' + produto.nome + ' comprado' + sufixoQtd + '! ' + msgLocal, '#22c55e');
+    estatisticas.produtosComprados++;
+    if (tipo === 'carro') estatisticas.carrosComprados++;
+    verificarProgresso();
+    salvarJogo();
 };
 
 // Atualiza a aba "Comprar Produtos": quantidade que o jogador já possui de
@@ -4697,7 +4857,9 @@ function executarConstrucaoReal() {
         }
     }
 
-    criarConstrucaoNoMundo(tipoCasaParaConstruir, posAlvo.x, posAlvo.y, posAlvo.z, anguloRotacaoHolograma);
+    const corPeca = TIPOS_ACABAMENTO[tipoCasaParaConstruir] ? obterCorAcabamentoAtual(tipoCasaParaConstruir) : null;
+    criarConstrucaoNoMundo(tipoCasaParaConstruir, posAlvo.x, posAlvo.y, posAlvo.z, anguloRotacaoHolograma, corPeca);
+    const tipoColocado = tipoCasaParaConstruir;
 
     // Remove 1 planta do inventário
     inventario['planta_' + tipoCasaParaConstruir]--;
@@ -4708,6 +4870,7 @@ function executarConstrucaoReal() {
     }
 
     atualizarUIAktiv();
+    contabilizarConstrucao(tipoColocado);
 }
 
 // Constrói de fato os meshes/colisores de uma construção no mundo, numa
@@ -4721,8 +4884,9 @@ function executarConstrucaoReal() {
 // propósito — isso "sombreia" as globais dentro desta função, então todo o
 // código interno (copiado de quando ele vivia direto em
 // executarConstrucaoReal) funciona sem precisar reescrever cada referência.
-function criarConstrucaoNoMundo(tipoCasaParaConstruir, x, y, z, anguloRotacaoHolograma) {
+function criarConstrucaoNoMundo(tipoCasaParaConstruir, x, y, z, anguloRotacaoHolograma, corPeca) {
     const posAlvo = { x, y, z };
+    let corRegistrada = corPeca || null;
 
     // Marca o "tamanho" de cada lista auxiliar ANTES de criar a construção, pra
     // depois conseguir descobrir exatamente o que foi adicionado por ela (e
@@ -4735,7 +4899,8 @@ function criarConstrucaoNoMundo(tipoCasaParaConstruir, x, y, z, anguloRotacaoHol
         fogueiras: listaFogueirasDinamicas.length,
         portas: todasAsPortas.length,
         zonas: zonasInteriores.length,
-        farois: listaFaroisGirando.length
+        farois: listaFaroisGirando.length,
+        fontes: fontesDeLuz.length
     };
 
     // Identifica o que construir e executa a função correta
@@ -4792,7 +4957,10 @@ function criarConstrucaoNoMundo(tipoCasaParaConstruir, x, y, z, anguloRotacaoHol
     } else if (tipoCasaParaConstruir === 'carro') {
         // Usa a cor escolhida na hora da compra (fila FIFO); se por algum
         // motivo não tiver nenhuma guardada, cai pra cor aleatória de sempre.
-        const corDoCarro = filaCoresCarro.length > 0 ? filaCoresCarro.shift() : null;
+        // (sem cor guardada na fila, sorteia uma da paleta — assim a cor também pode ser salva)
+        const PALETA_CARRO_ALEATORIA = ['#dc2626', '#2563eb', '#16a34a', '#eab308', '#f97316', '#7e22ce', '#e5e7eb', '#1f2937'];
+        const corDoCarro = filaCoresCarro.length > 0 ? filaCoresCarro.shift() : PALETA_CARRO_ALEATORIA[Math.floor(Math.random() * PALETA_CARRO_ALEATORIA.length)];
+        corRegistrada = corDoCarro;
         const carroReal = criarModeloCarro(corDoCarro);
         carroReal.position.set(posAlvo.x, posAlvo.y, posAlvo.z);
         carroReal.rotation.y = anguloRotacaoHolograma;
@@ -4826,6 +4994,7 @@ function criarConstrucaoNoMundo(tipoCasaParaConstruir, x, y, z, anguloRotacaoHol
     } else if (tipoCasaParaConstruir === 'tapete') {
         // Usa a cor escolhida na hora da compra (fila FIFO), igual ao carro.
         const corDoTapete = filaCoresTapete.length > 0 ? filaCoresTapete.shift() : null;
+        corRegistrada = corDoTapete;
         construirTapeteFisica(posAlvo.x, posAlvo.y, posAlvo.z, anguloRotacaoHolograma, corDoTapete);
         // Sem entrada em objetosMundo de propósito: assim como o piso, o
         // tapete é só decorativo/andável, não deve bloquear o jogador.
@@ -4881,6 +5050,12 @@ function criarConstrucaoNoMundo(tipoCasaParaConstruir, x, y, z, anguloRotacaoHol
         estanteReal.rotation.y = anguloRotacaoHolograma;
         cena.add(estanteReal); objetosRaycast.push(estanteReal);
         objetosMundo.push({ x: posAlvo.x, z: posAlvo.z, raio: 0.55, topoY: posAlvo.y + 1.9 });
+    } else if (TIPOS_ACABAMENTO[tipoCasaParaConstruir]) {
+        if (TIPOS_ACABAMENTO[tipoCasaParaConstruir].categoria === 'piso') {
+            construirPisoAcabamento(tipoCasaParaConstruir, posAlvo.x, posAlvo.y, posAlvo.z, anguloRotacaoHolograma, corPeca);
+        } else {
+            construirParedeAcabamento(tipoCasaParaConstruir, posAlvo.x, posAlvo.y, posAlvo.z, anguloRotacaoHolograma, corPeca);
+        }
     } else {
         // Se não for nenhum dos anteriores, constrói uma casa (p, m ou g)
         construirCasaDetalhada(tipoCasaParaConstruir, posAlvo.x, posAlvo.y, posAlvo.z, anguloRotacaoHolograma);
@@ -4898,6 +5073,8 @@ function criarConstrucaoNoMundo(tipoCasaParaConstruir, x, y, z, anguloRotacaoHol
         portasObjs: todasAsPortas.slice(snapshot.portas),
         zonasObjs: zonasInteriores.slice(snapshot.zonas),
         faroisObjs: listaFaroisGirando.slice(snapshot.farois),
+        fontesObjs: fontesDeLuz.slice(snapshot.fontes),
+        cor: corRegistrada,
         // Guarda também a posição/ângulo originais.
         x: posAlvo.x, y: posAlvo.y, z: posAlvo.z, rotY: anguloRotacaoHolograma
     };
@@ -4972,6 +5149,7 @@ function removerConstrucaoDoMundo(registro) {
         const iZona = zonasInteriores.indexOf(zona);
         if (iZona > -1) zonasInteriores.splice(iZona, 1);
     });
+    (registro.fontesObjs || []).forEach(fonte => removerFonteLuz(fonte));
     (registro.faroisObjs || []).forEach(farol => {
         const iFarol = listaFaroisGirando.indexOf(farol);
         if (iFarol > -1) listaFaroisGirando.splice(iFarol, 1);
@@ -4988,6 +5166,10 @@ function removerConstrucaoDoMundo(registro) {
 // móveis, carro, TV, tapete etc. — tudo que existe como "planta_<tipo>".
 function demolirConstrucao(registro) {
     removerConstrucaoDoMundo(registro);
+    if (registro.tipo === 'carro' && registro.cor) filaCoresCarro.push(registro.cor);
+    if (registro.tipo === 'tapete' && registro.cor) filaCoresTapete.push(registro.cor);
+    estatisticas.demolicoes++;
+    salvarJogo();
 
     inventario['planta_' + registro.tipo] = (inventario['planta_' + registro.tipo] || 0) + 1;
     atualizarUIAktiv();
@@ -5009,6 +5191,7 @@ const relogio = new THREE.Clock(); let tempoCiclo = 0.5;
 
 // PERFORMANCE: contadores usados para não repetir, todo frame, duas operações
 // caras (raycast de interação e recálculo de sombras) — ver função animar().
+let tempoPreso = 0;
 let contadorFrameInteracao = 0;
 let interseccoesCache = [];
 let contadorFrameSombra = 0;
@@ -5069,6 +5252,13 @@ function animar() {
         }
     }
 
+    // NOVO: semente na mão + mirando o terreno = pode plantar.
+    let alvoPlantio = null;
+    if (itemAtivo === 'semente' && !modoConstrucaoAtivo && interseccoes.length > 0 && interseccoes[0].object === terreno && interseccoes[0].distance < 9) {
+        alvoPlantio = interseccoes[0].point;
+        achouObjetoPerto = true; promptTexto = 'Segure o clique para plantar a semente [[semente]]';
+    }
+
     // Sons de machado/picareta: tocam em loop só enquanto o jogador está de
     // fato golpeando a árvore/rocha certa com a ferramenta certa, e param
     // assim que ele solta o clique, muda de alvo ou troca de ferramenta.
@@ -5085,10 +5275,10 @@ function animar() {
         if (arvoreSendoCortada !== arvoreOlhada) { arvoreSendoCortada = arvoreOlhada; tempoSegurandoClique = 0; }
         tempoSegurandoClique += delta;
         if (barraProgressoContainer && barraProgressoContainer.style.display !== 'block') barraProgressoContainer.style.display = 'block';
-        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoSegurandoClique / 3.0 * 100)) + '%';
+        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoSegurandoClique / tempoCorteArvore() * 100)) + '%';
 
-        if (tempoSegurandoClique >= 3.0) {
-            inventario.madeira += arvoreSendoCortada.madeirasDisponiveis;
+        if (tempoSegurandoClique >= tempoCorteArvore()) {
+            coletarArvore(arvoreSendoCortada);
             const txtMadeira = document.getElementById('txt-qtd-madeira');
             if (txtMadeira) txtMadeira.innerText = inventario.madeira;
             cena.remove(arvoreSendoCortada.meshRaiz);
@@ -5103,38 +5293,11 @@ function animar() {
         if (rochaSendoMinerada !== rochaOlhada) { rochaSendoMinerada = rochaOlhada; tempoSegurandoClique = 0; }
         tempoSegurandoClique += delta;
         if (barraProgressoContainer && barraProgressoContainer.style.display !== 'block') barraProgressoContainer.style.display = 'block';
-        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoSegurandoClique / 4.0 * 100)) + '%';
+        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoSegurandoClique / tempoMineracaoRocha() * 100)) + '%';
 
-        if (tempoSegurandoClique >= 4.0) {
-            // 1. Sempre adiciona as pedras padrão da rocha
-            inventario.pedra += rochaSendoMinerada.pedrasDisponiveis;
-            const txtPedra = document.getElementById('txt-qtd-pedra');
-            if (txtPedra) txtPedra.innerText = inventario.pedra;
-
-            // 2. Lógica de chances
-            // NOTA: ouro NÃO sai mais daqui — agora ele só vem do garimpo com
-            // a peneira no rio (ver bloco "GARIMPO DE OURO" mais abaixo). As
-            // chances foram redistribuídas entre pedra/ferro/cobre.
-            let chance = Math.random();
-
-            if (chance < 0.40) {
-                // 40% de chance: Apenas as pedras
-                mostrarNotificacao(`+${rochaSendoMinerada.pedrasDisponiveis} Pedras`);
-            }
-            else if (chance < 0.75) {
-                // +35% de chance: Ganha 1 Ferro
-                inventario.ferro = (inventario.ferro || 0) + 1;
-                const txtFerro = document.getElementById('txt-qtd-ferro');
-                if (txtFerro) txtFerro.innerText = inventario.ferro;
-                mostrarNotificacao(`+${rochaSendoMinerada.pedrasDisponiveis} Pedras e +1 Fragm. de Ferro!`);
-            }
-            else {
-                // +25% de chance restante: Ganha 1 Cobre
-                inventario.cobre = (inventario.cobre || 0) + 1;
-                const txtCobre = document.getElementById('txt-qtd-cobre');
-                if (txtCobre) txtCobre.innerText = inventario.cobre;
-                mostrarNotificacao(`+${rochaSendoMinerada.pedrasDisponiveis} Pedras e +1 Fragm. de Cobre!`);
-            }
+        if (tempoSegurandoClique >= tempoMineracaoRocha()) {
+            // Pedras + chance de minério (depende do nível da picareta — ver coletarRocha)
+            coletarRocha(rochaSendoMinerada);
 
             // 3. Remove a rocha do mundo
             cena.remove(rochaSendoMinerada.meshRaiz);
@@ -5150,13 +5313,15 @@ function animar() {
     else if (itemAtivo === 'pa' && estaMinando && jogadorEstaNaAgua) {
         tempoExtraindoAreia += delta;
         if (barraProgressoContainer && barraProgressoContainer.style.display !== 'block') barraProgressoContainer.style.display = 'block';
-        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoExtraindoAreia / 2.0 * 100)) + '%';
+        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoExtraindoAreia / tempoSacoAreia() * 100)) + '%';
 
-        if (tempoExtraindoAreia >= 2.0) {
-            inventario.saco_areia = (inventario.saco_areia || 0) + 1;
+        if (tempoExtraindoAreia >= tempoSacoAreia()) {
+            const sacosGanhos = efeitoFerramenta('pa', 'extra');
+            inventario.saco_areia = (inventario.saco_areia || 0) + sacosGanhos;
+            registrarEstatistica('areiaColetada', sacosGanhos);
             const txtAreia = document.getElementById('txt-qtd-saco-areia');
             if (txtAreia) txtAreia.innerText = inventario.saco_areia;
-            mostrarNotificacao('+1 Saco de Areia', '#38bdf8');
+            mostrarNotificacao('+' + sacosGanhos + ' Saco(s) de Areia', '#38bdf8');
             tempoExtraindoAreia = 0; // não zera "estaMinando": continua enquanto o dedo/clique estiver segurado
         }
     }
@@ -5179,18 +5344,21 @@ function animar() {
     else if (itemAtivo === 'peneira' && estaMinando && jogadorEstaNaAgua) {
         tempoGarimpando += delta;
         if (barraProgressoContainer && barraProgressoContainer.style.display !== 'block') barraProgressoContainer.style.display = 'block';
-        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoGarimpando / 3.0 * 100)) + '%';
+        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoGarimpando / tempoGarimpo() * 100)) + '%';
 
-        if (tempoGarimpando >= 3.0) {
+        if (tempoGarimpando >= tempoGarimpo()) {
             const sorte = Math.random();
-            if (sorte < 0.02) {
+            const chanceOuro2 = efeitoFerramenta('peneira', 'ouro2'), chanceOuro1 = efeitoFerramenta('peneira', 'ouro1');
+            if (sorte < chanceOuro2) {
                 // 2% de chance: 2 pepitas
                 inventario.ouro = (inventario.ouro || 0) + 2;
-                mostrarNotificacao('+2 Pepitas de Ouro! ✨✨', '#facc15');
-            } else if (sorte < 0.07) {
+                estatisticas.ouroColetado += 2;
+                mostrarNotificacao('+2 Pepitas de Ouro! [[brilho]][[brilho]]', '#facc15');
+            } else if (sorte < chanceOuro2 + chanceOuro1) {
                 // +5% de chance: 1 pepita (0.02 a 0.07 = 5% de faixa)
                 inventario.ouro = (inventario.ouro || 0) + 1;
-                mostrarNotificacao('+1 Pepita de Ouro! ✨', '#facc15');
+                estatisticas.ouroColetado += 1;
+                mostrarNotificacao('+1 Pepita de Ouro! [[brilho]]', '#facc15');
             } else {
                 // 93% restante: nada encontrado
                 mostrarNotificacao('Nada encontrado, apenas areia e cascalho', '#94a3b8');
@@ -5198,11 +5366,27 @@ function animar() {
             const txtOuro = document.getElementById('txt-qtd-ouro');
             if (txtOuro) txtOuro.innerText = inventario.ouro;
             sincronizarQuantidadesMochila();
+            verificarProgresso();
             tempoGarimpando = 0; // não zera "estaMinando": continua enquanto o dedo/clique estiver segurado
         }
     }
     else if (tempoGarimpando > 0 && (!estaMinando || itemAtivo !== 'peneira' || !jogadorEstaNaAgua)) {
         tempoGarimpando = 0;
+        if (barraProgressoContainer) barraProgressoContainer.style.display = 'none';
+    }
+    // NOVO: plantar semente (segurar ~0,7s olhando pro chão).
+    else if (itemAtivo === 'semente' && estaMinando && alvoPlantio) {
+        tempoPlantando += delta;
+        if (barraProgressoContainer && barraProgressoContainer.style.display !== 'block') barraProgressoContainer.style.display = 'block';
+        if (barraProgressoPreenchimento) barraProgressoPreenchimento.style.width = Math.min(100, (tempoPlantando / 0.7 * 100)) + '%';
+        if (tempoPlantando >= 0.7) {
+            plantarSemente(alvoPlantio.x, alvoPlantio.z);
+            estaMinando = false; tempoPlantando = 0;
+            if (barraProgressoContainer) barraProgressoContainer.style.display = 'none';
+        }
+    }
+    else if (tempoPlantando > 0) {
+        tempoPlantando = 0;
         if (barraProgressoContainer) barraProgressoContainer.style.display = 'none';
     }
     // Demolição de construções e itens colocados: funciona com QUALQUER item
@@ -5304,8 +5488,9 @@ function animar() {
             // comportamento INVERTE: pisos/camas ficam livres também (pra ajuste
             // fino), e os itens livres passam a alinhar numa grade de 1 (útil
             // pra alinhar cercas/muros rapidinho em linha reta).
-            const gridPadrao = (tipoCasaParaConstruir === 'piso' || tipoCasaParaConstruir === 'cama') ? 2
-                : (tipoCasaParaConstruir === 'asfalto' ? 4 : null);
+            const infoAcab = TIPOS_ACABAMENTO[tipoCasaParaConstruir];
+            const gridPadrao = (tipoCasaParaConstruir === 'piso' || tipoCasaParaConstruir === 'cama' || (infoAcab && infoAcab.categoria === 'piso')) ? 2
+                : (tipoCasaParaConstruir === 'asfalto' ? 4 : ((infoAcab && infoAcab.categoria === 'parede') ? 1 : null));
             const grid = correndo ? (gridPadrao ? null : 1) : gridPadrao;
             if (grid) {
                 xAlvo = Math.round(xAlvo / grid) * grid;
@@ -5316,7 +5501,7 @@ function animar() {
             hologramaVisual.rotation.y = anguloRotacaoHolograma;
 
             let corIndicativa = (alturaAlvo <= NIVEL_DA_AGUA) ? 0xff0000 : 0x00ff00;
-            hologramaVisual.children.forEach(c => { if (c.material) c.material.color.setHex(corIndicativa); });
+            hologramaVisual.children.forEach(c => { if (c.material && !c.userData.preview) c.material.color.setHex(corIndicativa); });
         } else {
             hologramaVisual.visible = false;
         }
@@ -5351,7 +5536,7 @@ function animar() {
 
     listaFogueirasDinamicas.forEach(fogueira => {
         // Faz a luz da fogueira construída oscilar
-        fogueira.luz.intensity = 1.5 + Math.sin(Date.now() * 0.02) * 0.4;
+        if (fogueira.luz) fogueira.luz.intensity = 1.5 + Math.sin(Date.now() * 0.02) * 0.4;
 
         // Atualiza as partículas de fumaça dela
         const posFP_Dinamica = fogueira.sistemaParticulas.geometry.attributes.position.array;
@@ -5370,6 +5555,11 @@ function animar() {
         }
         fogueira.sistemaParticulas.geometry.attributes.position.needsUpdate = true;
     });
+
+    // NOVO: luzes noturnas (tocha/poste/lareira), mudas crescendo, missões/tempo
+    atualizarFontesDeLuz(delta, Math.max(0, Math.min(1, (0.3 - alturaSol) * 4)));
+    atualizarMudas(delta);
+    atualizarSistemasJogo(delta, alturaSol);
 
     atualizarAnimais(delta);
 
@@ -5419,6 +5609,7 @@ function animar() {
 
     let alturaDoChaoReal = calcularAlturaChaoComZonas(posJ.x, posJ.z, posJ.y);
     let alturaPisoAtual = alturaDoChaoReal + ALTURA_JOGADOR;
+    const xInicioFrame = posJ.x, zInicioFrame = posJ.z;
 
     for (let sub = 0; sub < numSubPassos; sub++) {
         const posAntigaX = posJ.x, posAntigaZ = posJ.z;
@@ -5468,11 +5659,21 @@ function animar() {
                 if (posJ.x > obj.minX && posJ.x < obj.maxX && posJ.z > obj.minZ && posJ.z < obj.maxZ) {
                     // NOVO: se essa caixa representa o vão de uma porta, só bloqueia quando ela está fechada
                     colidiu = obj.porta ? !obj.porta.userData.aberta : true;
+                    // ANTI-TRAVAMENTO: se o jogador JÁ estava dentro da caixa antes deste passo, deixa andar (pra poder sair).
+                    if (colidiu && posAntigaX > obj.minX && posAntigaX < obj.maxX && posAntigaZ > obj.minZ && posAntigaZ < obj.maxZ) colidiu = false;
                 }
             }
             else {
                 const dx = posJ.x - obj.x, dz = posJ.z - obj.z;
-                if (Math.sqrt(dx * dx + dz * dz) < obj.raio) colidiu = true;
+                const dist2 = dx * dx + dz * dz;
+                if (dist2 < obj.raio * obj.raio) {
+                    colidiu = true;
+                    // ANTI-TRAVAMENTO: se já estava dentro do colisor (nasceu em cima de uma rocha, um bicho encostou...),
+                    // só bloqueia passos que o afundam MAIS — passos pra fora são liberados.
+                    const dxA = posAntigaX - obj.x, dzA = posAntigaZ - obj.z;
+                    const distAntes2 = dxA * dxA + dzA * dzA;
+                    if (distAntes2 < obj.raio * obj.raio && dist2 >= distAntes2) colidiu = false;
+                }
             }
 
             if (colidiu) {
@@ -5491,6 +5692,12 @@ function animar() {
             }
         }
     }
+
+    // RESGATE: querendo andar, sem sair do lugar e DENTRO de um colisor por mais de 1s -> tira o jogador de lá.
+    if ((moverFrente || moverTras || moverEsquerda || moverDireita) && Math.abs(posJ.x - xInicioFrame) + Math.abs(posJ.z - zInicioFrame) < 0.002) {
+        tempoPreso += delta;
+        if (tempoPreso > 1.0) { tempoPreso = 0; garantirJogadorLivre(true); }
+    } else { tempoPreso = 0; }
 
     posJ.y += (velocidade.y * delta); 
     if (posJ.y < alturaPisoAtual) { 
@@ -5535,6 +5742,1184 @@ function animar() {
 
     renderizador.render(cena, camera);
 }
+// ============================================================
+// ============================================================
+//  NOVOS SISTEMAS: estatísticas, missões, conquistas, melhorias de
+//  ferramentas, sementes/mudas, luzes noturnas, acabamentos (pisos e
+//  paredes coloridos) e salvamento.
+//  (Tudo aqui é definido ANTES de animar() rodar pela primeira vez.)
+// ============================================================
+// ============================================================
+
+// ------------------------------------------------------------
+// ESTATÍSTICAS (alimentam missões, conquistas e o painel do diário)
+// ------------------------------------------------------------
+const estatisticas = {
+    arvoresCortadas: 0, rochasMineradas: 0,
+    madeiraColetada: 0, pedraColetada: 0, ferroColetado: 0, cobreColetado: 0, ouroColetado: 0, areiaColetada: 0,
+    itensCraftados: 0, construcoesFeitas: 0, casasConstruidas: 0, moveisColocados: 0,
+    luzesColocadas: 0, acabamentosColocados: 0, demolicoes: 0,
+    vendas: 0, dinheiroGanho: 0, produtosComprados: 0, carrosComprados: 0, tvsLigadas: 0,
+    sementesPlantadas: 0, arvoresCrescidas: 0,
+    melhoriasFeitas: 0, ferramentasNivelMax: 0,
+    noitesVividas: 0, tempoJogado: 0
+};
+
+const NOMES_ESTATISTICAS = {
+    arvoresCortadas: '🪓 Árvores cortadas', rochasMineradas: '⛏️ Rochas mineradas',
+    madeiraColetada: '[[madeira]] Madeira coletada', pedraColetada: '[[pedra]] Pedra coletada',
+    ferroColetado: '[[ferro]] Ferro coletado', cobreColetado: '[[cobre]] Cobre coletado', ouroColetado: '[[ouro]] Ouro encontrado',
+    areiaColetada: '[[areia]] Sacos de areia', itensCraftados: '[[ferramentas]] Itens criados na mesa',
+    construcoesFeitas: '[[guindaste]] Construções colocadas', casasConstruidas: '[[casa]] Casas construídas',
+    moveisColocados: '[[cadeira]] Móveis colocados', luzesColocadas: '[[lampada]] Fontes de luz colocadas',
+    acabamentosColocados: '[[paleta]] Pisos/paredes colocados', demolicoes: '[[martelo]] Demolições',
+    vendas: '[[dinheiro]] Vendas realizadas', dinheiroGanho: '[[cedula]] Dinheiro ganho em vendas',
+    produtosComprados: '[[carrinho]] Produtos comprados', carrosComprados: '[[carro]] Carros comprados', tvsLigadas: '[[tv]] Vezes que ligou a TV',
+    sementesPlantadas: '[[semente]] Sementes plantadas', arvoresCrescidas: '[[arvore]] Árvores que cresceram',
+    melhoriasFeitas: '[[forja]] Melhorias de ferramenta', ferramentasNivelMax: '[[trofeu]] Ferramentas no nível máximo',
+    noitesVividas: '[[lua]] Noites vividas', tempoJogado: '[[relogio]] Tempo de jogo'
+};
+
+function registrarEstatistica(chave, quantidade = 1) {
+    estatisticas[chave] = (estatisticas[chave] || 0) + quantidade;
+    verificarProgresso();
+}
+
+// ------------------------------------------------------------
+// MELHORIAS DE FERRAMENTAS (nível 1 a 4 — limite máximo = nível 4)
+// ------------------------------------------------------------
+const NIVEL_MAX_FERRAMENTA = 4;
+const NOMES_NIVEIS_FERRAMENTA = { 1: 'Básico', 2: 'Ferro', 3: 'Cobre', 4: 'Ouro' };
+
+// Custo pra subir DO nível indicado pro próximo (nível 4 é o máximo).
+const CUSTO_MELHORIA_FERRAMENTA = {
+    1: { madeira: 10, ferro: 4 },
+    2: { pedra: 10, ferro: 3, cobre: 5 },
+    3: { ferro: 5, cobre: 4, ouro: 3 }
+};
+
+// Efeitos por nível (índice 0 = nível 1 ... índice 3 = nível 4).
+const EFEITOS_FERRAMENTA = {
+    machado: { tempo: [3.0, 2.4, 1.8, 1.3], extra: [0, 1, 2, 3], semente: [0.30, 0.36, 0.42, 0.50] },
+    picareta: { tempo: [4.0, 3.2, 2.5, 1.8], extra: [0, 1, 2, 3], semMinerio: [0.40, 0.33, 0.26, 0.20] },
+    pa: { tempo: [2.0, 1.6, 1.2, 0.8], extra: [1, 1, 2, 3] }, // "extra" = sacos de areia por ciclo
+    peneira: { tempo: [3.0, 2.6, 2.2, 1.8], ouro1: [0.05, 0.07, 0.09, 0.12], ouro2: [0.02, 0.03, 0.04, 0.06] }
+};
+
+function nivelDaFerramenta(chave) { return niveisFerramentas[chave] || 1; }
+function efeitoFerramenta(chave, campo) { return EFEITOS_FERRAMENTA[chave][campo][nivelDaFerramenta(chave) - 1]; }
+function tempoCorteArvore() { return efeitoFerramenta('machado', 'tempo'); }
+function tempoMineracaoRocha() { return efeitoFerramenta('picareta', 'tempo'); }
+function tempoSacoAreia() { return efeitoFerramenta('pa', 'tempo'); }
+function tempoGarimpo() { return efeitoFerramenta('peneira', 'tempo'); }
+
+const ICONE_RECURSO_CHIP = {
+    madeira: { emoji: '[[madeira]]' }, pedra: { emoji: '[[pedra]]' },
+    ferro: { img: 'img/ferro.png', emoji: '[[ferro]]' }, cobre: { img: 'img/cobre.png', emoji: '[[cobre]]' },
+    ouro: { img: 'img/ouro.png', emoji: '[[ouro]]' }, saco_areia: { img: 'img/areia.png', emoji: '[[areia]]' },
+    cimento: { img: 'img/cimento.png', emoji: '[[cimento]]' }
+};
+function htmlChipRecurso(recurso, quantidade, falta) {
+    const cfg = ICONE_RECURSO_CHIP[recurso] || { emoji: '[[caixa]]' };
+    const icone = cfg.img
+        ? `<img class="custo-icone-img" src="${cfg.img}" alt="" onerror="this.replaceWith(document.createTextNode('${cfg.emoji} '))">`
+        : cfg.emoji;
+    return `<span class="custo-chip${falta ? ' falta' : ''}" data-recurso="${recurso}">${icone} ${quantidade}</span>`;
+}
+
+function descricaoEfeitoNivel(chave, nivel) {
+    const i = nivel - 1;
+    const e = EFEITOS_FERRAMENTA[chave];
+    if (chave === 'machado') return `corte ${e.tempo[i].toFixed(1)}s · +${e.extra[i]} [[madeira]]/árvore · ${Math.round(e.semente[i] * 100)}% semente`;
+    if (chave === 'picareta') return `mineração ${e.tempo[i].toFixed(1)}s · +${e.extra[i]} [[pedra]]/rocha · ${Math.round((1 - e.semMinerio[i]) * 100)}% minério`;
+    if (chave === 'pa') return `${e.tempo[i].toFixed(1)}s por ciclo · ${e.extra[i]} saco(s) de areia`;
+    return `busca ${e.tempo[i].toFixed(1)}s · ${Math.round(e.ouro1[i] * 100)}% / ${Math.round(e.ouro2[i] * 100)}% de ouro`;
+}
+
+function podePagarCusto(custo) {
+    return Object.keys(custo).every(r => (inventario[r] || 0) >= custo[r]);
+}
+
+function renderizarMelhorias() {
+    const grid = document.querySelector('.crafting-grid[data-painel="melhorias"]');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    FERRAMENTAS_MELHORAVEIS.forEach(chave => {
+        const possui = (inventario[chave] || 0) > 0;
+        const nivel = nivelDaFerramenta(chave);
+        const noMaximo = nivel >= NIVEL_MAX_FERRAMENTA;
+        const custo = noMaximo ? null : CUSTO_MELHORIA_FERRAMENTA[nivel];
+        const pode = possui && !noMaximo && podePagarCusto(custo);
+
+        const card = document.createElement('div');
+        card.className = 'card-craft card-melhoria' + (pode ? '' : ' indisponivel') + (noMaximo ? ' nivel-maximo' : '');
+
+        const icone = document.createElement('div');
+        icone.className = 'card-icone';
+        icone.appendChild(criarElementoIcone(CONFIG_ITENS_HOTBAR[chave].icone));
+        card.appendChild(icone);
+
+        const nome = document.createElement('div');
+        nome.className = 'card-nome';
+        nome.innerText = NOMES_ITENS[chave];
+        card.appendChild(nome);
+
+        const pips = document.createElement('div');
+        pips.className = 'melhoria-nivel';
+        pips.innerText = '[[pip_on]]'.repeat(nivel) + '[[pip_off]]'.repeat(NIVEL_MAX_FERRAMENTA - nivel) + '  Nv ' + nivel + '/' + NIVEL_MAX_FERRAMENTA + ' · ' + NOMES_NIVEIS_FERRAMENTA[nivel];
+        card.appendChild(pips);
+
+        const efeito = document.createElement('div');
+        efeito.className = 'melhoria-efeito';
+        efeito.innerText = noMaximo
+            ? 'Agora: ' + descricaoEfeitoNivel(chave, nivel)
+            : 'Próximo: ' + descricaoEfeitoNivel(chave, nivel + 1);
+        card.appendChild(efeito);
+
+        const custos = document.createElement('div');
+        custos.className = 'card-custos';
+        if (custo) {
+            custos.innerHTML = Object.keys(custo).map(r => htmlChipRecurso(r, custo[r], (inventario[r] || 0) < custo[r])).join('');
+        }
+        card.appendChild(custos);
+
+        const botao = document.createElement('button');
+        if (!possui) { botao.innerText = 'Crie a ferramenta antes'; botao.disabled = true; }
+        else if (noMaximo) { botao.innerText = '[[estrela]] NÍVEL MÁXIMO'; botao.disabled = true; }
+        else { botao.innerText = '[[forja]] Melhorar para Nv ' + (nivel + 1); botao.disabled = !pode; botao.onclick = () => melhorarFerramenta(chave); }
+        card.appendChild(botao);
+
+        grid.appendChild(card);
+    });
+}
+
+function melhorarFerramenta(chave) {
+    if ((inventario[chave] || 0) <= 0) { mostrarNotificacao('Você ainda não tem essa ferramenta!', '#ef4444'); return; }
+    const nivel = nivelDaFerramenta(chave);
+    if (nivel >= NIVEL_MAX_FERRAMENTA) { mostrarNotificacao('Essa ferramenta já está no nível máximo!', '#f59e0b'); return; }
+    const custo = CUSTO_MELHORIA_FERRAMENTA[nivel];
+    if (!podePagarCusto(custo)) { mostrarNotificacao('Recursos insuficientes!', '#ef4444'); return; }
+
+    Object.keys(custo).forEach(r => { inventario[r] -= custo[r]; });
+    niveisFerramentas[chave] = nivel + 1;
+
+    mostrarNotificacao('[[forja]] ' + NOMES_ITENS[chave] + ' melhorado para Nv ' + (nivel + 1) + ' (' + NOMES_NIVEIS_FERRAMENTA[nivel + 1] + ')!', '#22c55e');
+    estatisticas.melhoriasFeitas++;
+    if (nivel + 1 >= NIVEL_MAX_FERRAMENTA) estatisticas.ferramentasNivelMax++;
+
+    atualizarUIAktiv();
+    atualizarEstadoCraftingUI();
+    verificarProgresso();
+    salvarJogo();
+}
+
+// Coleta ao derrubar uma árvore (chamada pelo loop principal).
+function coletarArvore(arvore) {
+    const madeiraGanha = arvore.madeirasDisponiveis + efeitoFerramenta('machado', 'extra');
+    inventario.madeira += madeiraGanha;
+    estatisticas.arvoresCortadas++;
+    estatisticas.madeiraColetada += madeiraGanha;
+
+    // Chance de cair uma semente (aumenta com o nível do machado).
+    let textoSemente = '';
+    if (Math.random() < efeitoFerramenta('machado', 'semente')) {
+        inventario.semente = (inventario.semente || 0) + 1;
+        textoSemente = ' e 1 Semente [[semente]]!';
+    }
+    mostrarNotificacao('+' + madeiraGanha + ' Madeira' + textoSemente, textoSemente ? '#84cc16' : '#22c55e');
+
+    // Guarda no save: árvore natural cortada, ou muda plantada que já tinha crescido.
+    if (arvore.plantadaRef) {
+        const i = arvoresPlantadasCrescidas.indexOf(arvore.plantadaRef);
+        if (i > -1) arvoresPlantadasCrescidas.splice(i, 1);
+    } else if (arvore.id !== undefined) {
+        idsRemovidosMundo.add(arvore.id);
+    }
+    atualizarUIAktiv();
+    verificarProgresso();
+}
+
+// Coleta ao quebrar uma rocha. Minério depende do nível da picareta.
+function coletarRocha(rocha) {
+    const pedraGanha = rocha.pedrasDisponiveis + efeitoFerramenta('picareta', 'extra');
+    inventario.pedra += pedraGanha;
+    estatisticas.rochasMineradas++;
+    estatisticas.pedraColetada += pedraGanha;
+
+    const semMinerio = efeitoFerramenta('picareta', 'semMinerio');
+    const sorte = Math.random();
+    if (sorte < semMinerio) {
+        mostrarNotificacao('+' + pedraGanha + ' Pedras');
+    } else if (Math.random() < 0.58) {
+        inventario.ferro = (inventario.ferro || 0) + 1;
+        estatisticas.ferroColetado++;
+        mostrarNotificacao('+' + pedraGanha + ' Pedras e +1 Fragm. de Ferro!');
+    } else {
+        inventario.cobre = (inventario.cobre || 0) + 1;
+        estatisticas.cobreColetado++;
+        mostrarNotificacao('+' + pedraGanha + ' Pedras e +1 Fragm. de Cobre!');
+    }
+    if (rocha.id !== undefined) idsRemovidosMundo.add(rocha.id);
+    atualizarUIAktiv();
+    verificarProgresso();
+}
+
+// ------------------------------------------------------------
+// SEMENTES E MUDAS (árvores plantadas pelo jogador)
+// ------------------------------------------------------------
+const TEMPO_CRESCIMENTO_MUDA = 150; // segundos até virar árvore de verdade
+const mudasPlantadas = [];          // mudas ainda crescendo { x, z, y, tipo, mod, idade, grupo }
+const arvoresPlantadasCrescidas = []; // árvores que nasceram de semente (pra salvar)
+let tempoPlantando = 0;
+
+function criarModeloMuda(tipo) {
+    const g = new THREE.Group();
+    const tronco = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.0, 6), matTroncoGlobal);
+    tronco.position.y = 0.5; tronco.castShadow = true; g.add(tronco);
+    const cor = tipo === 1 ? 0x65a30d : (tipo === 2 ? 0x4d7c0f : 0x15803d);
+    const mat = new THREE.MeshStandardMaterial({ color: cor, roughness: 0.8, flatShading: true });
+    const f1 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.55, 0), mat); f1.position.y = 1.15; f1.castShadow = true; g.add(f1);
+    const f2 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.38, 0), mat); f2.position.set(0.25, 0.85, 0.1); g.add(f2);
+    return g;
+}
+
+function criarMuda(x, z, tipo, mod, idade) {
+    const y = obterAlturaTerreno(x, z);
+    const grupo = criarModeloMuda(tipo);
+    grupo.position.set(x, y, z);
+    cena.add(grupo);
+    const muda = { x, z, y, tipo, mod, idade: idade || 0, grupo };
+    mudasPlantadas.push(muda);
+    aplicarCrescimentoMuda(muda);
+    return muda;
+}
+
+function aplicarCrescimentoMuda(muda) {
+    const progresso = Math.min(1, muda.idade / TEMPO_CRESCIMENTO_MUDA);
+    muda.grupo.scale.setScalar(0.35 + progresso * 0.75);
+}
+
+function atualizarMudas(delta) {
+    for (let i = mudasPlantadas.length - 1; i >= 0; i--) {
+        const muda = mudasPlantadas[i];
+        muda.idade += delta;
+        if (muda.idade < TEMPO_CRESCIMENTO_MUDA) {
+            // atualiza o tamanho aos poucos (não precisa ser todo frame)
+            if (Math.floor(muda.idade * 2) !== Math.floor((muda.idade - delta) * 2)) aplicarCrescimentoMuda(muda);
+            continue;
+        }
+        // Cresceu: troca a muda por uma árvore completa (cortável igual às outras).
+        cena.remove(muda.grupo);
+        muda.grupo.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+        mudasPlantadas.splice(i, 1);
+
+        const dados = criarArvoreDiferenciada(muda.x, muda.z, { tipo: muda.tipo, mod: muda.mod });
+        if (dados) {
+            const registro = { x: muda.x, z: muda.z, tipo: muda.tipo, mod: muda.mod };
+            dados.plantadaRef = registro;
+            arvoresPlantadasCrescidas.push(registro);
+            mostrarNotificacao('[[arvore]] Uma árvore que você plantou cresceu!', '#84cc16');
+            estatisticas.arvoresCrescidas++;
+            verificarProgresso();
+        }
+    }
+}
+
+// Valida e planta uma semente no ponto (x, z) do terreno.
+function plantarSemente(x, z) {
+    if ((inventario.semente || 0) <= 0) return false;
+    if (obterAlturaTerreno(x, z) <= NIVEL_DA_AGUA + 0.4) { mostrarNotificacao('Não dá pra plantar na água!', '#ef4444'); return false; }
+
+    // Não planta dentro de casas/pontes (altura do chão diferente do terreno)
+    const alturaTerreno = obterAlturaTerreno(x, z);
+    if (Math.abs(calcularAlturaChaoComZonas(x, z, alturaTerreno + ALTURA_JOGADOR) - alturaTerreno) > 0.3) {
+        mostrarNotificacao('Não dá pra plantar aqui!', '#ef4444'); return false;
+    }
+    // Espaço livre: não encosta em árvore, rocha, construção, etc.
+    if (!pontoEstaLivre(x, z, 1.4, true)) { mostrarNotificacao('Muito perto de outro objeto!', '#ef4444'); return false; }
+    for (const m of mudasPlantadas) {
+        if (Math.hypot(m.x - x, m.z - z) < 2.5) { mostrarNotificacao('Já tem uma muda aqui perto!', '#ef4444'); return false; }
+    }
+
+    const tipo = Math.floor(Math.random() * 3);
+    const mod = 0.8 + Math.random() * 0.7;
+    criarMuda(x, z, tipo, mod, 0);
+
+    inventario.semente--;
+    estatisticas.sementesPlantadas++;
+    mostrarNotificacao('[[semente]] Semente plantada! Ela vira árvore em cerca de 2 minutos e meio.', '#84cc16');
+    atualizarUIAktiv();
+    verificarProgresso();
+    return true;
+}
+
+// ------------------------------------------------------------
+// MISSÕES (em sequência) E CONQUISTAS
+// ------------------------------------------------------------
+const MISSOES = [
+    { id: 'm01', titulo: 'Lenhador Iniciante', desc: 'Corte 3 árvores com o machado.', stat: 'arvoresCortadas', meta: 3, recompensa: { dinheiro: 300 } },
+    { id: 'm02', titulo: 'Mãos à Obra', desc: 'Colete 20 de madeira no total.', stat: 'madeiraColetada', meta: 20, recompensa: { dinheiro: 500 } },
+    { id: 'm03', titulo: 'Primeira Planta', desc: 'Crie qualquer item na Mesa de Trabalho (tecla E perto dela).', stat: 'itensCraftados', meta: 1, recompensa: { itens: { madeira: 10 } } },
+    { id: 'm04', titulo: 'Um Teto Sobre a Cabeça', desc: 'Construa uma casa (pequena, média, grande ou de concreto).', stat: 'casasConstruidas', meta: 1, recompensa: { dinheiro: 1000 } },
+    { id: 'm05', titulo: 'Pedreiro', desc: 'Mine 3 rochas com a picareta.', stat: 'rochasMineradas', meta: 3, recompensa: { dinheiro: 800 } },
+    { id: 'm06', titulo: 'Mercador', desc: 'Venda recursos no Computador da cabana.', stat: 'vendas', meta: 1, recompensa: { dinheiro: 500 } },
+    { id: 'm07', titulo: 'Chão Firme', desc: 'Coloque 10 pisos ou paredes (qualquer tipo).', stat: 'acabamentosColocados', meta: 10, recompensa: { dinheiro: 1200 } },
+    { id: 'm08', titulo: 'Faça-se a Luz', desc: 'Coloque 2 fontes de luz (tocha, poste ou lareira). Elas acendem à noite!', stat: 'luzesColocadas', meta: 2, recompensa: { dinheiro: 1000 } },
+    { id: 'm09', titulo: 'Semeador', desc: 'Plante 3 sementes (elas caem das árvores que você corta).', stat: 'sementesPlantadas', meta: 3, recompensa: { dinheiro: 1200 } },
+    { id: 'm10', titulo: 'Ferreiro', desc: 'Melhore uma ferramenta na aba "Melhorias" da Mesa de Trabalho.', stat: 'melhoriasFeitas', meta: 1, recompensa: { dinheiro: 2000, itens: { ferro: 2 } } },
+    { id: 'm11', titulo: 'Decorador', desc: 'Coloque 5 móveis ou itens de decoração.', stat: 'moveisColocados', meta: 5, recompensa: { dinheiro: 1500 } },
+    { id: 'm12', titulo: 'Garimpeiro', desc: 'Encontre 1 pepita de ouro com a peneira no rio.', stat: 'ouroColetado', meta: 1, recompensa: { dinheiro: 2500 } },
+    { id: 'm13', titulo: 'Sobre Rodas', desc: 'Compre um carro no Computador.', stat: 'carrosComprados', meta: 1, recompensa: { dinheiro: 3000 } },
+    { id: 'm14', titulo: 'Arquiteto', desc: 'Tenha construído 3 casas no total.', stat: 'casasConstruidas', meta: 3, recompensa: { dinheiro: 5000 } },
+    { id: 'm15', titulo: 'Mestre Construtor', desc: 'Leve uma ferramenta ao nível máximo (Nv 4).', stat: 'ferramentasNivelMax', meta: 1, recompensa: { dinheiro: 10000 } }
+];
+
+const CONQUISTAS = [
+    { id: 'c_lenhador', icone: '🪓', titulo: 'Lenhador', desc: 'Corte 25 árvores.', cond: e => e.arvoresCortadas >= 25 },
+    { id: 'c_florestal', icone: '[[pinheiro]]', titulo: 'Mestre das Florestas', desc: 'Corte 100 árvores.', cond: e => e.arvoresCortadas >= 100 },
+    { id: 'c_minerador', icone: '⛏️', titulo: 'Minerador', desc: 'Mine 20 rochas.', cond: e => e.rochasMineradas >= 20 },
+    { id: 'c_ferreiro', icone: '[[forja]]', titulo: 'Ferreiro', desc: 'Melhore uma ferramenta.', cond: e => e.melhoriasFeitas >= 1 },
+    { id: 'c_lendaria', icone: '[[trofeu]]', titulo: 'Ferramenta Lendária', desc: 'Leve uma ferramenta ao nível máximo.', cond: e => e.ferramentasNivelMax >= 1 },
+    { id: 'c_arsenal', icone: '[[ferramentas]]', titulo: 'Arsenal Completo', desc: 'Leve as 4 ferramentas ao nível máximo.', cond: e => e.ferramentasNivelMax >= 4 },
+    { id: 'c_proprietario', icone: '[[chave]]', titulo: 'Proprietário', desc: 'Construa sua primeira casa.', cond: e => e.casasConstruidas >= 1 },
+    { id: 'c_construtor', icone: '[[casa]]', titulo: 'Construtor', desc: 'Coloque 10 construções.', cond: e => e.construcoesFeitas >= 10 },
+    { id: 'c_urbanista', icone: '[[predios]]', titulo: 'Urbanista', desc: 'Coloque 50 construções.', cond: e => e.construcoesFeitas >= 50 },
+    { id: 'c_decorador', icone: '[[sofa]]', titulo: 'Decorador', desc: 'Coloque 10 móveis.', cond: e => e.moveisColocados >= 10 },
+    { id: 'c_acabamento', icone: '[[paleta]]', titulo: 'Mestre dos Acabamentos', desc: 'Coloque 30 pisos ou paredes.', cond: e => e.acabamentosColocados >= 30 },
+    { id: 'c_luz', icone: '[[lampada]]', titulo: 'Cidade Iluminada', desc: 'Coloque 5 fontes de luz.', cond: e => e.luzesColocadas >= 5 },
+    { id: 'c_noite', icone: '[[lua]]', titulo: 'Sobrevivente', desc: 'Viva sua primeira noite.', cond: e => e.noitesVividas >= 1 },
+    { id: 'c_maoverde', icone: '[[semente]]', titulo: 'Mão Verde', desc: 'Faça 5 árvores crescerem.', cond: e => e.arvoresCrescidas >= 5 },
+    { id: 'c_reflorestador', icone: '[[arvore]]', titulo: 'Reflorestador', desc: 'Plante 20 sementes.', cond: e => e.sementesPlantadas >= 20 },
+    { id: 'c_rico', icone: '[[dinheiro]]', titulo: 'Rico', desc: 'Ganhe $50.000 em vendas.', cond: e => e.dinheiroGanho >= 50000 },
+    { id: 'c_milionario', icone: '[[diamante]]', titulo: 'Milionário', desc: 'Ganhe $1.000.000 em vendas.', cond: e => e.dinheiroGanho >= 1000000 },
+    { id: 'c_ouro', icone: '[[ouro]]', titulo: 'Febre do Ouro', desc: 'Encontre 5 pepitas de ouro.', cond: e => e.ouroColetado >= 5 },
+    { id: 'c_motorista', icone: '[[carro]]', titulo: 'Motorista', desc: 'Compre um carro.', cond: e => e.carrosComprados >= 1 },
+    { id: 'c_cinema', icone: '[[tv]]', titulo: 'Hora do Lazer', desc: 'Ligue a TV.', cond: e => e.tvsLigadas >= 1 },
+    { id: 'c_dedicacao', icone: '[[relogio]]', titulo: 'Dedicação', desc: 'Jogue por 1 hora.', cond: e => e.tempoJogado >= 3600 }
+];
+
+const missoesConcluidas = new Set();
+const conquistasDesbloqueadas = new Set();
+
+function missaoAtual() { return MISSOES.find(m => !missoesConcluidas.has(m.id)) || null; }
+
+// Fila de avisos grandes (missão concluída / conquista), mostrados um de cada vez.
+const filaAvisos = [];
+let avisoEmExibicao = false;
+function mostrarAviso(icone, titulo, texto, cor) {
+    filaAvisos.push({ icone, titulo, texto, cor });
+    if (!avisoEmExibicao) proximoAviso();
+}
+function proximoAviso() {
+    const el = document.getElementById('aviso-grande');
+    if (!el || filaAvisos.length === 0) { avisoEmExibicao = false; if (el) el.classList.remove('visivel'); return; }
+    avisoEmExibicao = true;
+    const a = filaAvisos.shift();
+    el.style.borderColor = a.cor || '#fbbf24';
+    el.querySelector('.aviso-icone').innerText = a.icone;
+    el.querySelector('.aviso-titulo').innerText = a.titulo;
+    el.querySelector('.aviso-texto').innerText = a.texto;
+    el.classList.add('visivel');
+    setTimeout(() => {
+        el.classList.remove('visivel');
+        setTimeout(proximoAviso, 450);
+    }, 3600);
+}
+
+function textoRecompensa(r) {
+    const partes = [];
+    if (r.dinheiro) partes.push('+' + formatarDinheiro(r.dinheiro));
+    if (r.itens) Object.keys(r.itens).forEach(k => partes.push('+' + r.itens[k] + ' ' + (NOMES_ITENS[k] || k)));
+    return partes.join(' · ');
+}
+
+function concluirMissao(m) {
+    missoesConcluidas.add(m.id);
+    const r = m.recompensa || {};
+    if (r.dinheiro) { dinheiroJogador += r.dinheiro; atualizarDinheiroUI(); }
+    if (r.itens) Object.keys(r.itens).forEach(k => { inventario[k] = (inventario[k] || 0) + r.itens[k]; });
+    mostrarAviso('[[alvo]]', 'Missão concluída: ' + m.titulo, 'Recompensa: ' + textoRecompensa(r), '#22c55e');
+    atualizarUIAktiv();
+    salvarJogo();
+}
+
+function desbloquearConquista(c) {
+    conquistasDesbloqueadas.add(c.id);
+    mostrarAviso(c.icone, 'Conquista desbloqueada!', c.titulo + ' — ' + c.desc, '#fbbf24');
+    salvarJogo();
+}
+
+let verificandoProgresso = false;
+function verificarProgresso() {
+    if (verificandoProgresso) return;
+    verificandoProgresso = true;
+    try {
+        CONQUISTAS.forEach(c => { if (!conquistasDesbloqueadas.has(c.id) && c.cond(estatisticas)) desbloquearConquista(c); });
+        // Pode completar várias missões seguidas se o jogador já tiver feito tudo antes.
+        let m = missaoAtual();
+        while (m && (estatisticas[m.stat] || 0) >= m.meta) {
+            concluirMissao(m);
+            m = missaoAtual();
+        }
+    } finally { verificandoProgresso = false; }
+    atualizarHudMissao();
+    if (diarioAberto) renderizarDiario();
+}
+
+function atualizarHudMissao() {
+    const el = document.getElementById('hud-missao');
+    if (!el) return;
+    const m = missaoAtual();
+    if (!m) {
+        el.innerHTML = '<div class="hud-missao-titulo">[[trofeu]] Todas as missões concluídas!</div><div class="hud-missao-desc">Aperte J para ver suas conquistas.</div>';
+        return;
+    }
+    const atual = Math.min(estatisticas[m.stat] || 0, m.meta);
+    const indice = MISSOES.indexOf(m) + 1;
+    el.innerHTML = '<div class="hud-missao-titulo">[[alvo]] Missão ' + indice + '/' + MISSOES.length + ' · ' + m.titulo + '</div>' +
+        '<div class="hud-missao-desc">' + m.desc + '</div>' +
+        '<div class="hud-missao-barra"><div style="width:' + Math.round(atual / m.meta * 100) + '%"></div></div>' +
+        '<div class="hud-missao-prog">' + atual + ' / ' + m.meta + '</div>';
+}
+
+// ------------------------------------------------------------
+// PAINEL DO DIÁRIO (missões / conquistas / estatísticas) — tecla J
+// ------------------------------------------------------------
+let diarioAberto = false;
+let abaDiarioAtiva = 'missoes';
+
+function formatarTempoJogo(segundos) {
+    const h = Math.floor(segundos / 3600), mi = Math.floor((segundos % 3600) / 60);
+    return h > 0 ? h + 'h ' + mi + 'min' : mi + ' min';
+}
+
+function renderizarDiario() {
+    const conteudo = document.getElementById('diario-conteudo');
+    if (!conteudo) return;
+    let html = '';
+
+    if (abaDiarioAtiva === 'missoes') {
+        const atual = missaoAtual();
+        html += '<div class="diario-resumo">' + missoesConcluidas.size + ' de ' + MISSOES.length + ' missões concluídas</div>';
+        MISSOES.forEach((m, i) => {
+            const feita = missoesConcluidas.has(m.id);
+            const ativa = atual && atual.id === m.id;
+            const prog = Math.min(estatisticas[m.stat] || 0, m.meta);
+            html += '<div class="diario-item ' + (feita ? 'feita' : (ativa ? 'ativa' : 'bloqueada')) + '">' +
+                '<div class="diario-item-icone">' + (feita ? '[[check]]' : (ativa ? '[[play]]' : '[[cadeado]]')) + '</div>' +
+                '<div class="diario-item-corpo"><div class="diario-item-titulo">' + (i + 1) + '. ' + m.titulo + '</div>' +
+                (feita || ativa ? '<div class="diario-item-desc">' + m.desc + '</div>' : '<div class="diario-item-desc">Conclua a missão anterior pra liberar.</div>') +
+                (ativa ? '<div class="hud-missao-barra"><div style="width:' + Math.round(prog / m.meta * 100) + '%"></div></div><div class="hud-missao-prog">' + prog + ' / ' + m.meta + '</div>' : '') +
+                '<div class="diario-item-recompensa">[[presente]] ' + textoRecompensa(m.recompensa) + '</div></div></div>';
+        });
+    } else if (abaDiarioAtiva === 'conquistas') {
+        html += '<div class="diario-resumo">' + conquistasDesbloqueadas.size + ' de ' + CONQUISTAS.length + ' conquistas</div><div class="diario-grade">';
+        CONQUISTAS.forEach(c => {
+            const ok = conquistasDesbloqueadas.has(c.id);
+            html += '<div class="conquista-card ' + (ok ? 'ok' : 'trancada') + '"><div class="conquista-icone">' + (ok ? c.icone : '[[cadeado]]') + '</div>' +
+                '<div class="conquista-titulo">' + c.titulo + '</div><div class="conquista-desc">' + c.desc + '</div></div>';
+        });
+        html += '</div>';
+    } else {
+        html += '<div class="diario-stats">';
+        Object.keys(NOMES_ESTATISTICAS).forEach(k => {
+            let valor = estatisticas[k] || 0;
+            if (k === 'tempoJogado') valor = formatarTempoJogo(valor);
+            else if (k === 'dinheiroGanho') valor = formatarDinheiro(valor);
+            else valor = Math.floor(valor).toLocaleString('pt-BR');
+            html += '<div class="diario-stat"><span>' + NOMES_ESTATISTICAS[k] + '</span><b>' + valor + '</b></div>';
+        });
+        html += '</div>';
+    }
+    conteudo.innerHTML = html;
+}
+
+function abrirDiario() {
+    if (diarioAberto || !jogoIniciado || dirigindoCarro) return;
+    if (menuCraftingAberto || menuLojaAberto || menuTVAberto || mochilaAberta) return;
+    diarioAberto = true;
+    estaMinando = false;
+    pararSonsDeMovimento();
+    renderizarDiario();
+    document.getElementById('painel-diario').style.display = 'flex';
+    if (menuPause) menuPause.style.display = 'none';
+    if (!ehTouch && controles.isLocked) controles.unlock();
+}
+
+function fecharDiario() {
+    if (!diarioAberto) return;
+    diarioAberto = false;
+    document.getElementById('painel-diario').style.display = 'none';
+    if (!ehTouch && !jogoPausado) controles.lock();
+}
+
+document.getElementById('btn-fechar-diario')?.addEventListener('click', fecharDiario);
+document.getElementById('btn-diario-mobile')?.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (diarioAberto) fecharDiario(); else abrirDiario();
+}, { passive: false });
+document.querySelectorAll('.aba-diario').forEach(aba => {
+    aba.addEventListener('click', () => {
+        document.querySelectorAll('.aba-diario').forEach(a => a.classList.remove('ativa'));
+        aba.classList.add('ativa');
+        abaDiarioAtiva = aba.dataset.abaDiario;
+        renderizarDiario();
+    });
+});
+document.getElementById('btn-diario-pause')?.addEventListener('click', () => {
+    // Vindo do menu de pausa: fecha a pausa e abre o diário por cima do jogo.
+    jogoPausado = false;
+    if (menuPause) menuPause.style.display = 'none';
+    abrirDiario();
+});
+window.addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyJ') return;
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+    if (diarioAberto) fecharDiario(); else abrirDiario();
+});
+
+// ------------------------------------------------------------
+// LUZES NOTURNAS (tocha, poste de luz e lareira acendem à noite)
+// ------------------------------------------------------------
+// PointLights são caras (cada uma entra no cálculo de TODOS os materiais) e
+// adicionar/remover uma luz da cena força o Three.js a recompilar os shaders
+// (aquela "travadinha" ao construir). Por isso as luzes de verdade ficam num
+// POOL fixo, criado uma vez só: a cada 0,3s as fontes de luz mais próximas do
+// jogador "emprestam" uma luz do pool. As demais continuam com o brilho
+// visual (sprite/emissivo), só que sem iluminar o entorno.
+const fontesDeLuz = [];
+const POOL_LUZES_QTD = ehTouch ? 4 : 8;
+const poolLuzes = [];
+for (let i = 0; i < POOL_LUZES_QTD; i++) {
+    const luzPool = new THREE.PointLight(0xffaa55, 0, 12);
+    luzPool.userData.fonte = null;
+    cena.add(luzPool);
+    poolLuzes.push(luzPool);
+}
+let nivelLuzAtual = 0;       // 0 = dia (tudo apagado) ... 1 = noite (tudo aceso)
+let temporizadorPoolLuz = 0;
+
+function criarTexturaBrilho() {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+}
+const texturaBrilho = criarTexturaBrilho();
+
+function criarSpriteBrilho(corHex, escala) {
+    const mat = new THREE.SpriteMaterial({ map: texturaBrilho, color: corHex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(escala, escala, 1);
+    sprite.raycast = function () { }; // nunca "atrapalha" a mira do jogador
+    return sprite;
+}
+
+function registrarFonteLuz(cfg) {
+    const fonte = Object.assign({ x: 0, y: 0, z: 0, cor: 0xffaa55, intensidade: 1.5, distancia: 12, flicker: true, fase: Math.random() * 10, aplicar: null }, cfg);
+    fontesDeLuz.push(fonte);
+    if (fonte.aplicar) fonte.aplicar(nivelLuzAtual, 0);
+    return fonte;
+}
+
+function removerFonteLuz(fonte) {
+    const i = fontesDeLuz.indexOf(fonte);
+    if (i > -1) fontesDeLuz.splice(i, 1);
+    poolLuzes.forEach(l => { if (l.userData.fonte === fonte) { l.userData.fonte = null; l.intensity = 0; } });
+}
+
+// "alvo" = 0 (dia) a 1 (noite), calculado no loop a partir da altura do sol.
+function atualizarFontesDeLuz(delta, alvo) {
+    nivelLuzAtual += (alvo - nivelLuzAtual) * Math.min(1, delta * 1.2);
+    if (Math.abs(alvo - nivelLuzAtual) < 0.002) nivelLuzAtual = alvo;
+    const nivel = nivelLuzAtual;
+    const t = Date.now() * 0.001;
+
+    for (let i = 0; i < fontesDeLuz.length; i++) {
+        const f = fontesDeLuz[i];
+        if (f.aplicar) f.aplicar(nivel, t);
+    }
+
+    temporizadorPoolLuz -= delta;
+    if (temporizadorPoolLuz <= 0) {
+        temporizadorPoolLuz = 0.3;
+        const pos = controles.getObject().position;
+        const candidatas = [];
+        for (let i = 0; i < fontesDeLuz.length; i++) {
+            const f = fontesDeLuz[i];
+            const dx = f.x - pos.x, dy = f.y - pos.y, dz = f.z - pos.z;
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < 80 * 80) candidatas.push({ f, d2 });
+        }
+        candidatas.sort((a, b) => a.d2 - b.d2);
+        for (let i = 0; i < poolLuzes.length; i++) {
+            const luz = poolLuzes[i], c = candidatas[i];
+            if (c) {
+                luz.userData.fonte = c.f;
+                luz.position.set(c.f.x, c.f.y, c.f.z);
+                luz.color.setHex(c.f.cor);
+                luz.distance = c.f.distancia;
+            } else { luz.userData.fonte = null; }
+        }
+    }
+
+    for (let i = 0; i < poolLuzes.length; i++) {
+        const luz = poolLuzes[i], f = luz.userData.fonte;
+        if (!f || nivel < 0.01) { luz.intensity = 0; continue; }
+        const osc = f.flicker ? (0.9 + 0.1 * Math.sin(t * 11 + f.fase) + 0.05 * Math.sin(t * 23 + f.fase * 2)) : 1;
+        luz.intensity = f.intensidade * nivel * osc;
+    }
+}
+
+// ------------------------------------------------------------
+// ACABAMENTOS: pisos e paredes de vários materiais e cores
+// ------------------------------------------------------------
+const texturasBaseAcabamento = {};
+
+function desenharTexturaAcabamento(material) {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d');
+    if (material === 'madeira') {
+        for (let i = 0; i < 4; i++) {
+            const y = i * 32, tom = 215 + Math.floor(Math.random() * 30);
+            g.fillStyle = `rgb(${tom},${tom - 12},${tom - 40})`; g.fillRect(0, y, 128, 32);
+            g.strokeStyle = 'rgba(90,60,30,0.28)'; g.lineWidth = 1;
+            for (let k = 0; k < 5; k++) {
+                const yy = y + 4 + k * 6 + Math.random() * 3;
+                g.beginPath(); g.moveTo(0, yy);
+                g.bezierCurveTo(40, yy + Math.random() * 4 - 2, 90, yy + Math.random() * 4 - 2, 128, yy + Math.random() * 3 - 1.5);
+                g.stroke();
+            }
+            g.fillStyle = 'rgba(50,30,10,0.65)'; g.fillRect(0, y, 128, 2); g.fillRect((i * 47) % 128, y, 2, 32);
+        }
+    } else if (material === 'tijolo') {
+        g.fillStyle = '#f0ece6'; g.fillRect(0, 0, 128, 128);
+        for (let linha = 0; linha < 4; linha++) {
+            const desloc = (linha % 2) * 32;
+            for (let col = -1; col < 3; col++) {
+                const tom = 175 + Math.floor(Math.random() * 45);
+                g.fillStyle = `rgb(${tom},${tom},${tom})`; g.fillRect(col * 64 + desloc + 3, linha * 32 + 3, 58, 26);
+            }
+        }
+    } else if (material === 'ceramica') {
+        for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { g.fillStyle = (i + j) % 2 === 0 ? '#ffffff' : '#d6d6d6'; g.fillRect(i * 32, j * 32, 32, 32); }
+        g.strokeStyle = '#9ca3af'; g.lineWidth = 2;
+        for (let i = 0; i <= 4; i++) {
+            g.beginPath(); g.moveTo(i * 32, 0); g.lineTo(i * 32, 128); g.stroke();
+            g.beginPath(); g.moveTo(0, i * 32); g.lineTo(128, i * 32); g.stroke();
+        }
+    } else if (material === 'marmore') {
+        g.fillStyle = '#f6f6f7'; g.fillRect(0, 0, 128, 128);
+        for (let n = 0; n < 8; n++) {
+            g.strokeStyle = `rgba(110,115,130,${0.15 + Math.random() * 0.25})`; g.lineWidth = 0.8 + Math.random() * 1.4;
+            g.beginPath(); let x = Math.random() * 128, y = 0; g.moveTo(x, y);
+            for (let s = 0; s < 6; s++) { x += (Math.random() - 0.5) * 40; y += 22; g.lineTo(x, y); }
+            g.stroke();
+        }
+        g.strokeStyle = 'rgba(150,150,160,0.55)'; g.lineWidth = 2; g.strokeRect(0, 0, 128, 128);
+    } else { // concreto
+        g.fillStyle = '#d4d4d4'; g.fillRect(0, 0, 128, 128);
+        for (let n = 0; n < 700; n++) { const v = 170 + Math.floor(Math.random() * 70); g.fillStyle = `rgba(${v},${v},${v},0.55)`; g.fillRect(Math.random() * 128, Math.random() * 128, 2, 2); }
+        g.strokeStyle = '#8e8e8e'; g.lineWidth = 3; g.strokeRect(1.5, 1.5, 125, 125);
+        g.fillStyle = '#9a9a9a';
+        [[10, 10], [118, 10], [10, 118], [118, 118]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 2.5, 0, 6.3); g.fill(); });
+    }
+    return c;
+}
+
+// Devolve uma textura (com repetição própria) a partir de um desenho base
+// guardado em cache — o desenho em si é feito uma vez só por material.
+function obterTexturaAcabamento(material, repX, repY) {
+    if (!texturasBaseAcabamento[material]) texturasBaseAcabamento[material] = desenharTexturaAcabamento(material);
+    const tex = new THREE.CanvasTexture(texturasBaseAcabamento[material]);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repX, repY);
+    tex.anisotropy = 4;
+    return tex;
+}
+
+function rugosidadeAcabamento(material) { return material === 'marmore' ? 0.22 : (material === 'ceramica' ? 0.35 : 0.85); }
+
+function obterCorAcabamentoAtual(tipoChave) {
+    const cfg = TIPOS_ACABAMENTO[tipoChave];
+    const p = PALETA_ACABAMENTOS[indiceCorAcabamento] || PALETA_ACABAMENTOS[0];
+    return p.hex || COR_NATURAL_MATERIAL[cfg ? cfg.material : 'concreto'];
+}
+
+let contadorPisosColocados = 0;
+function construirPisoAcabamento(tipoChave, posX, posY, posZ, rotacaoY, corHex) {
+    const cfg = TIPOS_ACABAMENTO[tipoChave];
+    // Igual ao asfalto: uma "pele" finíssima que acompanha o relevo do terreno (grade de vértices
+    // amostrando obterAlturaTerreno), em vez de uma placa rígida que fica flutuando/afundando.
+    // Se o piso for colocado em cima de uma construção (andar de cima, ponte...), ele fica reto
+    // na altura onde foi colocado.
+    const TAM = 2, SUB = 4, metade = TAM / 2;
+    const EPS = 0.02 + (contadorPisosColocados++ % 8) * 0.003; // pisos colocados depois ficam um fio acima
+    const seguirTerreno = Math.abs(posY - obterAlturaTerreno(posX, posZ)) < 0.6;
+    const cosR = Math.cos(rotacaoY), sinR = Math.sin(rotacaoY);
+    const passo = TAM / SUB;
+
+    const posArr = [], uvArr = [];
+    for (let j = 0; j <= SUB; j++) {
+        for (let i = 0; i <= SUB; i++) {
+            const lx = -metade + i * passo, lz = -metade + j * passo;
+            const rx = lx * cosR + lz * sinR;
+            const rz = -lx * sinR + lz * cosR;
+            const yMundo = seguirTerreno ? obterAlturaTerreno(posX + rx, posZ + rz) + EPS : posY + EPS;
+            posArr.push(rx, yMundo - posY, rz);
+            uvArr.push(i / SUB, j / SUB);
+        }
+    }
+    const indices = [];
+    const largura = SUB + 1;
+    for (let j = 0; j < SUB; j++) {
+        for (let i = 0; i < SUB; i++) {
+            const a = j * largura + i, b = a + 1, c = a + largura, d = c + 1;
+            indices.push(a, c, b, b, c, d);
+        }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvArr, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+
+    const mat = new THREE.MeshStandardMaterial({
+        map: obterTexturaAcabamento(cfg.material, 1, 1), color: new THREE.Color(corHex || COR_NATURAL_MATERIAL[cfg.material]),
+        roughness: rugosidadeAcabamento(cfg.material), metalness: cfg.material === 'marmore' ? 0.1 : 0,
+        side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
+    });
+    const piso = new THREE.Mesh(geo, mat);
+    piso.position.set(posX, posY, posZ);
+    piso.receiveShadow = true;
+    cena.add(piso);
+    objetosRaycast.push(piso);
+}
+
+const PAREDE_LARGURA = 2.0, PAREDE_ALTURA = 2.8, PAREDE_ESPESSURA = 0.2;
+
+function construirParedeAcabamento(tipoChave, posX, posY, posZ, rotacaoY, corHex) {
+    const cfg = TIPOS_ACABAMENTO[tipoChave];
+    const cor = new THREE.Color(corHex || COR_NATURAL_MATERIAL[cfg.material]);
+    let objeto;
+
+    if (cfg.material === 'vidro') {
+        objeto = new THREE.Group();
+        const vidro = new THREE.Mesh(
+            new THREE.BoxGeometry(PAREDE_LARGURA - 0.2, PAREDE_ALTURA - 0.2, 0.06),
+            new THREE.MeshStandardMaterial({ color: cor, transparent: true, opacity: 0.32, roughness: 0.05, metalness: 0.2 })
+        );
+        vidro.position.y = PAREDE_ALTURA / 2;
+        objeto.add(vidro);
+        const matQuadro = new THREE.MeshStandardMaterial({ color: 0x2f3640, roughness: 0.5, metalness: 0.6 });
+        [
+            [PAREDE_LARGURA, 0.1, 0.14, 0, 0.05, 0], [PAREDE_LARGURA, 0.1, 0.14, 0, PAREDE_ALTURA - 0.05, 0],
+            [0.1, PAREDE_ALTURA, 0.14, -PAREDE_LARGURA / 2 + 0.05, PAREDE_ALTURA / 2, 0], [0.1, PAREDE_ALTURA, 0.14, PAREDE_LARGURA / 2 - 0.05, PAREDE_ALTURA / 2, 0],
+            [0.06, PAREDE_ALTURA - 0.2, 0.1, 0, PAREDE_ALTURA / 2, 0]
+        ].forEach(([w, h, d, x, y, z]) => {
+            const parte = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), matQuadro);
+            parte.position.set(x, y, z); parte.castShadow = true; objeto.add(parte);
+        });
+        objeto.position.set(posX, posY, posZ);
+    } else {
+        const rug = rugosidadeAcabamento(cfg.material);
+        const criarMat = (rx, ry) => new THREE.MeshStandardMaterial({ map: obterTexturaAcabamento(cfg.material, rx, ry), color: cor, roughness: rug });
+        const matFrente = criarMat(1, 1.4), matLado = criarMat(0.1, 1.4), matTopo = criarMat(1, 0.1);
+        objeto = new THREE.Mesh(new THREE.BoxGeometry(PAREDE_LARGURA, PAREDE_ALTURA, PAREDE_ESPESSURA), [matLado, matLado, matTopo, matTopo, matFrente, matFrente]);
+        objeto.castShadow = true; objeto.receiveShadow = true;
+        objeto.position.set(posX, posY + PAREDE_ALTURA / 2, posZ);
+    }
+    objeto.rotation.y = rotacaoY;
+    cena.add(objeto);
+    objetosRaycast.push(objeto);
+
+    // Colisão exata: as paredes só giram de 90 em 90 graus, então uma caixa
+    // alinhada aos eixos (isBox) cobre a peça direitinho — dá pra montar
+    // cômodos de verdade, sem o "raio gordo" circular das cercas/muros.
+    const girada = Math.abs(Math.round(rotacaoY / (Math.PI / 2))) % 2 === 1;
+    const meiaX = (girada ? PAREDE_ESPESSURA : PAREDE_LARGURA) / 2 + 0.05;
+    const meiaZ = (girada ? PAREDE_LARGURA : PAREDE_ESPESSURA) / 2 + 0.05;
+    objetosMundo.push({ isBox: true, minX: posX - meiaX, maxX: posX + meiaX, minZ: posZ - meiaZ, maxZ: posZ + meiaZ, topoY: posY + PAREDE_ALTURA });
+}
+
+// Ícone (canvas) de cada acabamento — usado na hotbar, na mochila e nos cards da mesa.
+function desenharIconeAcabamento(canvas, tipoChave, corHex) {
+    const cfg = TIPOS_ACABAMENTO[tipoChave];
+    if (!cfg) return;
+    const g = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
+    g.clearRect(0, 0, W, H);
+    const cor = corHex || COR_NATURAL_MATERIAL[cfg.material];
+    const ehPiso = cfg.categoria === 'piso';
+    const x0 = ehPiso ? W * 0.1 : W * 0.26, y0 = ehPiso ? H * 0.28 : H * 0.08;
+    const w = ehPiso ? W * 0.8 : W * 0.48, h = ehPiso ? H * 0.5 : H * 0.84;
+
+    g.fillStyle = cor; g.fillRect(x0, y0, w, h);
+    g.save(); g.beginPath(); g.rect(x0, y0, w, h); g.clip();
+    g.strokeStyle = 'rgba(0,0,0,0.38)'; g.lineWidth = Math.max(1, W / 30);
+    const linha = (ax, ay, bx, by) => { g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); };
+    if (cfg.material === 'madeira') {
+        for (let i = 1; i < 4; i++) linha(x0, y0 + h * i / 4, x0 + w, y0 + h * i / 4);
+        linha(x0 + w * 0.35, y0, x0 + w * 0.35, y0 + h / 4); linha(x0 + w * 0.7, y0 + h / 2, x0 + w * 0.7, y0 + h * 0.75);
+    } else if (cfg.material === 'tijolo') {
+        for (let i = 1; i < 4; i++) linha(x0, y0 + h * i / 4, x0 + w, y0 + h * i / 4);
+        for (let i = 0; i < 4; i++) { const off = (i % 2) * w / 4; linha(x0 + off + w / 2, y0 + h * i / 4, x0 + off + w / 2, y0 + h * (i + 1) / 4); }
+    } else if (cfg.material === 'ceramica') {
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2 === 0) { g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x0 + w * i / 3, y0 + h * j / 3, w / 3, h / 3); }
+        for (let i = 1; i < 3; i++) { linha(x0 + w * i / 3, y0, x0 + w * i / 3, y0 + h); linha(x0, y0 + h * i / 3, x0 + w, y0 + h * i / 3); }
+    } else if (cfg.material === 'marmore') {
+        g.strokeStyle = 'rgba(90,95,110,0.45)';
+        linha(x0 + w * 0.1, y0, x0 + w * 0.5, y0 + h * 0.5); linha(x0 + w * 0.5, y0 + h * 0.5, x0 + w * 0.4, y0 + h);
+        linha(x0 + w * 0.7, y0, x0 + w * 0.95, y0 + h * 0.6);
+    } else if (cfg.material === 'concreto') {
+        g.fillStyle = 'rgba(0,0,0,0.25)';
+        for (let i = 0; i < 14; i++) g.fillRect(x0 + ((i * 37) % 100) / 100 * w, y0 + ((i * 53) % 100) / 100 * h, 1.5, 1.5);
+    } else { // vidro
+        g.fillStyle = 'rgba(255,255,255,0.5)';
+        g.beginPath(); g.moveTo(x0 + w * 0.15, y0 + h * 0.05); g.lineTo(x0 + w * 0.5, y0 + h * 0.05); g.lineTo(x0 + w * 0.15, y0 + h * 0.5); g.fill();
+        g.strokeStyle = 'rgba(30,41,59,0.8)'; g.lineWidth = Math.max(2, W / 14); g.strokeRect(x0, y0, w, h);
+    }
+    g.restore();
+    g.strokeStyle = 'rgba(0,0,0,0.65)'; g.lineWidth = 1; g.strokeRect(x0, y0, w, h);
+}
+
+function ciclarCorAcabamento(passo) {
+    indiceCorAcabamento = (indiceCorAcabamento + passo + PALETA_ACABAMENTOS.length) % PALETA_ACABAMENTOS.length;
+    atualizarCorPreviewAcabamento();
+    atualizarHudCorAcabamento();
+}
+
+function atualizarCorPreviewAcabamento() {
+    if (!hologramaVisual || !hologramaVisual.userData.preview) return;
+    hologramaVisual.userData.preview.material.color.set(obterCorAcabamentoAtual(tipoCasaParaConstruir));
+}
+
+// Mostra (ou esconde) o seletor de cor quando o jogador segura um piso/parede.
+function atualizarHudCorAcabamento() {
+    const hud = document.getElementById('hud-cor-acabamento');
+    const segurando = !!(typeof modoConstrucaoAtivo !== 'undefined' && modoConstrucaoAtivo && TIPOS_ACABAMENTO[tipoCasaParaConstruir]);
+    if (hud) {
+        hud.style.display = segurando ? 'flex' : 'none';
+        if (segurando) {
+            const p = PALETA_ACABAMENTOS[indiceCorAcabamento];
+            const hex = obterCorAcabamentoAtual(tipoCasaParaConstruir);
+            hud.innerHTML = '<span class="cor-amostra" style="background:' + hex + '"></span>' +
+                '<span class="cor-info">[[paleta]] Cor: <b>' + p.nome + '</b></span>' +
+                (ehTouch ? '' : '<span class="cor-dica">[C] próxima · [V] anterior</span>');
+        }
+    }
+    const btn = document.getElementById('btn-cor-mobile');
+    if (btn) btn.style.display = segurando ? 'flex' : 'none';
+}
+document.getElementById('btn-cor-mobile')?.addEventListener('touchstart', (e) => { e.preventDefault(); ciclarCorAcabamento(1); }, { passive: false });
+
+// Cards da aba "Acabamentos" da Mesa de Trabalho (montados a partir da tabela).
+function construirCardsAcabamentos() {
+    const grid = document.querySelector('.crafting-grid[data-painel="acabamentos"]');
+    if (!grid) return;
+    grid.innerHTML = '';
+    Object.keys(TIPOS_ACABAMENTO).forEach(chave => {
+        const cfg = TIPOS_ACABAMENTO[chave], custo = cfg.custo;
+        const card = document.createElement('div');
+        card.className = 'card-craft';
+        card.id = 'craft-' + chave;
+        card.dataset.custoMadeira = custo.madeira || 0;
+        card.dataset.custoPedra = custo.pedra || 0;
+        if (custo.ferro) card.dataset.custoFerro = custo.ferro;
+        if (custo.saco_areia) card.dataset.custoSacoAreia = custo.saco_areia;
+        if (custo.cimento) card.dataset.custoCimento = custo.cimento;
+
+        const icone = document.createElement('div'); icone.className = 'card-icone';
+        const canvas = document.createElement('canvas'); canvas.className = 'icone-canvas'; canvas.width = 44; canvas.height = 44;
+        icone.appendChild(canvas); card.appendChild(icone);
+        desenharIconeAcabamento(canvas, chave);
+
+        const nome = document.createElement('div'); nome.className = 'card-nome'; nome.innerText = cfg.nome + ' x' + cfg.pacote; card.appendChild(nome);
+        const custos = document.createElement('div'); custos.className = 'card-custos';
+        custos.innerHTML = Object.keys(custo).map(r => htmlChipRecurso(r, custo[r], false)).join('');
+        card.appendChild(custos);
+
+        const botao = document.createElement('button'); botao.innerText = 'Criar Planta';
+        botao.onclick = () => craftarConstrucao(chave, custo.madeira || 0, custo.pedra || 0, custo.ferro || 0, custo.saco_areia || 0, custo.cimento || 0);
+        card.appendChild(botao);
+        grid.appendChild(card);
+    });
+    const dica = document.createElement('div');
+    dica.className = 'dica-acabamentos';
+    dica.innerText = '[[paleta]] A cor é escolhida na hora de colocar: segure a planta e aperte C / V (no celular, o botão [[paleta]]). Paredes têm colisão e dá pra montar cômodos!';
+    grid.appendChild(dica);
+}
+
+// Conta as construções colocadas pra missões/conquistas.
+function contabilizarConstrucao(tipo) {
+    estatisticas.construcoesFeitas++;
+    if (['p', 'm', 'g', 'concreto'].includes(tipo)) estatisticas.casasConstruidas++;
+    if (['mesa', 'cadeira', 'bau', 'banco', 'armario', 'estante', 'cama', 'tapete', 'tv', 'lareira'].includes(tipo)) estatisticas.moveisColocados++;
+    if (['tocha', 'poste', 'lareira', 'fogueira'].includes(tipo)) estatisticas.luzesColocadas++;
+    if (['piso', 'muro', 'cerca'].includes(tipo) || TIPOS_ACABAMENTO[tipo]) estatisticas.acabamentosColocados++;
+    verificarProgresso();
+    salvarJogo();
+}
+
+// ------------------------------------------------------------
+// NASCIMENTO SEGURO + ANTI-TRAVAMENTO
+// ------------------------------------------------------------
+// true se o ponto (x,z) não está dentro de nenhum colisor (árvore, rocha,
+// animal, parede...). "margem" engorda cada colisor. incluirCasas=false
+// ignora o miolo das casas (o jogador pode estar dentro de uma).
+function pontoEstaLivre(x, z, margem, incluirCasas) {
+    for (let i = 0; i < objetosMundo.length; i++) {
+        const obj = objetosMundo[i];
+        if (obj.isCasaConstruida) {
+            if (!incluirCasas) continue;
+            vetorColisaoAux.set(x - obj.x, 0, z - obj.z);
+            vetorColisaoAux.applyAxisAngle(eixoY, -obj.rot);
+            if (Math.abs(vetorColisaoAux.x) < obj.w / 2 + margem && Math.abs(vetorColisaoAux.z) < obj.d / 2 + margem) return false;
+        } else if (obj.isBox) {
+            if (x > obj.minX - margem && x < obj.maxX + margem && z > obj.minZ - margem && z < obj.maxZ + margem) return false;
+        } else if (obj.raio !== undefined) {
+            const dx = x - obj.x, dz = z - obj.z, r = obj.raio + margem;
+            if (dx * dx + dz * dz < r * r) return false;
+        }
+    }
+    return true;
+}
+
+// Procura em espiral o ponto livre mais próximo de (xp, zp), em terra firme.
+function encontrarPontoLivre(xp, zp, incluirCasas) {
+    for (let raio = 0; raio <= 70; raio += 1.5) {
+        const passos = raio === 0 ? 1 : Math.ceil(raio * 2);
+        for (let i = 0; i < passos; i++) {
+            const a = (i / passos) * Math.PI * 2;
+            const x = xp + Math.cos(a) * raio, z = zp + Math.sin(a) * raio;
+            if (Math.abs(x) > 190 || Math.abs(z) > 190) continue;
+            if (obterAlturaTerreno(x, z) > NIVEL_DA_AGUA + 0.8 && pontoEstaLivre(x, z, 1.0, incluirCasas)) return { x, z };
+        }
+    }
+    return { x: xp, z: zp };
+}
+
+function posicionarJogadorNoSpawn() {
+    const p = encontrarPontoLivre(PONTO_SPAWN_X, PONTO_SPAWN_Z, true);
+    controles.getObject().position.set(p.x, obterAlturaTerreno(p.x, p.z) + ALTURA_JOGADOR, p.z);
+}
+
+// Tira o jogador de dentro de um colisor (usado ao carregar um save e pelo resgate automático).
+function garantirJogadorLivre(avisar) {
+    const pos = controles.getObject().position;
+    if (pontoEstaLivre(pos.x, pos.z, 0.1, false)) return false;
+    const p = encontrarPontoLivre(pos.x, pos.z, false);
+    pos.set(p.x, calcularAlturaChaoComZonas(p.x, p.z, pos.y) + ALTURA_JOGADOR, p.z);
+    velocidade.set(0, 0, 0);
+    if (avisar) mostrarNotificacao('[[pino]] Você estava preso — posição corrigida!', '#38bdf8');
+    return true;
+}
+
+// ------------------------------------------------------------
+// SALVAMENTO / CARREGAMENTO
+// ------------------------------------------------------------
+let ultimoSaveMs = 0, timerSave = null, timerIconeSave = null;
+
+function serializarConstrucao(r) {
+    let x = r.x, y = r.y, z = r.z, rot = r.rotY;
+    if (r.tipo === 'carro') {
+        // carro pode ter sido dirigido: salva onde ele está AGORA
+        const dc = carrosNoMundo.find(c => r.raycastObjs.includes(c.grupo));
+        if (dc) { x = dc.grupo.position.x; y = dc.grupo.position.y; z = dc.grupo.position.z; rot = dc.direcaoY; }
+    }
+    return { tipo: r.tipo, x: +x.toFixed(3), y: +y.toFixed(3), z: +z.toFixed(3), rotY: +rot.toFixed(4), cor: r.cor || null };
+}
+
+function montarDadosSave() {
+    const inv = Object.assign({}, inventario);
+    // recursos reservados no carrinho de venda não podem se perder
+    Object.keys(carrinhoVenda).forEach(r => { inv[r] = (inv[r] || 0) + (carrinhoVenda[r] || 0); });
+
+    const posJ = controles.getObject().position;
+    let px = posJ.x, py = posJ.y, pz = posJ.z;
+    if (dirigindoCarro && carroAtual) {
+        const off = new THREE.Vector3(2.6, 0, 0).applyAxisAngle(eixoY, carroAtual.direcaoY);
+        px = carroAtual.grupo.position.x + off.x; pz = carroAtual.grupo.position.z + off.z;
+        py = obterAlturaTerreno(px, pz) + ALTURA_JOGADOR;
+    }
+    return {
+        versao: 1, sementeMundo: SEMENTE_MUNDO, salvoEm: Date.now(),
+        inventario: inv, hotbar: hotbar.slice(), itemAtivo, dinheiro: dinheiroJogador,
+        niveisFerramentas: Object.assign({}, niveisFerramentas),
+        estatisticas: Object.assign({}, estatisticas),
+        missoesConcluidas: Array.from(missoesConcluidas),
+        conquistas: Array.from(conquistasDesbloqueadas),
+        jogador: { x: px, y: py, z: pz, yaw: camera.rotation.y, pitch: camera.rotation.x },
+        tempoCiclo, indiceCorAcabamento,
+        construcoes: construcoesColocadas.map(serializarConstrucao),
+        removidosMundo: Array.from(idsRemovidosMundo),
+        arvoresPlantadas: arvoresPlantadasCrescidas.map(a => ({ x: a.x, z: a.z, tipo: a.tipo, mod: a.mod })),
+        mudas: mudasPlantadas.map(m => ({ x: m.x, z: m.z, tipo: m.tipo, mod: m.mod, idade: m.idade })),
+        filaCoresCarro: filaCoresCarro.slice(), filaCoresTapete: filaCoresTapete.slice(),
+        volumes: { efeitos: volumeEfeitos, musica: volumeMusica }
+    };
+}
+
+function gravarSave(manual) {
+    if (impedirAutoSave || !jogoIniciado) return false;
+    try {
+        localStorage.setItem(CHAVE_SAVE, JSON.stringify(montarDadosSave()));
+        ultimoSaveMs = Date.now();
+        if (manual) mostrarNotificacao('[[salvar]] Jogo salvo!', '#22c55e');
+        else {
+            const ic = document.getElementById('icone-save');
+            if (ic) { ic.classList.add('visivel'); clearTimeout(timerIconeSave); timerIconeSave = setTimeout(() => ic.classList.remove('visivel'), 1400); }
+        }
+        return true;
+    } catch (erro) {
+        console.warn('Falha ao salvar:', erro);
+        if (manual) mostrarNotificacao('Não foi possível salvar (armazenamento bloqueado ou cheio).', '#ef4444');
+        return false;
+    }
+}
+
+// Pedido de save "leve" (depois de construir, craftar, vender...): junta vários pedidos seguidos em um só.
+function salvarJogo() {
+    if (timerSave || impedirAutoSave) return;
+    const espera = Math.max(300, 2500 - (Date.now() - ultimoSaveMs));
+    timerSave = setTimeout(() => { timerSave = null; gravarSave(false); }, espera);
+}
+
+function apagarSaveERecomecar() {
+    impedirAutoSave = true;
+    try { localStorage.removeItem(CHAVE_SAVE); } catch (e) { }
+    window.location.reload();
+}
+
+function removerObjetoNatural(dados) {
+    if (dados.meshRaiz) cena.remove(dados.meshRaiz);
+    const iMundo = objetosMundo.indexOf(dados); if (iMundo > -1) objetosMundo.splice(iMundo, 1);
+    const iRay = objetosRaycast.indexOf(dados.meshRaiz); if (iRay > -1) objetosRaycast.splice(iRay, 1);
+}
+
+function carregarJogoSalvo() {
+    const s = saveInicial;
+    if (!s) {
+        posicionarJogadorNoSpawn();
+        renderizarMelhorias(); atualizarHudMissao();
+        return;
+    }
+    try {
+        // --- dados simples ---
+        Object.keys(s.inventario || {}).forEach(k => { inventario[k] = s.inventario[k]; });
+        for (let i = 0; i < LIMITE_HOTBAR; i++) {
+            const k = (s.hotbar || [])[i];
+            hotbar[i] = (k && CONFIG_ITENS_HOTBAR[k]) ? k : null;
+        }
+        dinheiroJogador = s.dinheiro || 0;
+        Object.assign(niveisFerramentas, s.niveisFerramentas || {});
+        Object.assign(estatisticas, s.estatisticas || {});
+        (s.missoesConcluidas || []).forEach(id => missoesConcluidas.add(id));
+        (s.conquistas || []).forEach(id => conquistasDesbloqueadas.add(id));
+        if (Number.isFinite(s.tempoCiclo)) tempoCiclo = s.tempoCiclo;
+        if (Number.isInteger(s.indiceCorAcabamento) && s.indiceCorAcabamento < PALETA_ACABAMENTOS.length) indiceCorAcabamento = s.indiceCorAcabamento;
+        if (s.volumes) {
+            try {
+                if (Number.isFinite(s.volumes.efeitos)) definirVolumeEfeitos(s.volumes.efeitos);
+                if (Number.isFinite(s.volumes.musica)) definirVolumeMusica(s.volumes.musica);
+            } catch (e) { }
+        }
+
+        // --- natureza: árvores/rochas já cortadas ---
+        (s.removidosMundo || []).forEach(id => idsRemovidosMundo.add(id));
+        for (let i = objetosMundo.length - 1; i >= 0; i--) {
+            const o = objetosMundo[i];
+            if ((o.eArvore || o.eRocha) && o.id !== undefined && idsRemovidosMundo.has(o.id)) removerObjetoNatural(o);
+        }
+        // árvores que nasceram de semente e mudas ainda crescendo
+        (s.arvoresPlantadas || []).forEach(a => {
+            const dados = criarArvoreDiferenciada(a.x, a.z, { tipo: a.tipo, mod: a.mod });
+            if (dados) { const reg = { x: a.x, z: a.z, tipo: a.tipo, mod: a.mod }; dados.plantadaRef = reg; arvoresPlantadasCrescidas.push(reg); }
+        });
+        (s.mudas || []).forEach(m => criarMuda(m.x, m.z, m.tipo, m.mod, m.idade));
+
+        // --- construções ---
+        (s.construcoes || []).forEach(c => {
+            try {
+                if (c.tipo === 'carro' && c.cor) filaCoresCarro.unshift(c.cor);
+                if (c.tipo === 'tapete' && c.cor) filaCoresTapete.unshift(c.cor);
+                criarConstrucaoNoMundo(c.tipo, c.x, c.y, c.z, c.rotY, c.cor);
+            } catch (erro) { console.warn('Construção não restaurada:', c, erro); }
+        });
+        // cores de itens comprados e ainda não colocados
+        (s.filaCoresCarro || []).forEach(c => filaCoresCarro.push(c));
+        (s.filaCoresTapete || []).forEach(c => filaCoresTapete.push(c));
+
+        // --- item na mão ---
+        itemAtivo = (s.itemAtivo && (inventario[s.itemAtivo] || 0) > 0) ? s.itemAtivo : 'machado';
+
+        // --- jogador ---
+        const j = s.jogador;
+        if (j && Number.isFinite(j.x) && Number.isFinite(j.z)) {
+            controles.getObject().position.set(j.x, Number.isFinite(j.y) ? j.y : 20, j.z);
+            camera.rotation.order = 'YXZ';
+            camera.rotation.set(j.pitch || 0, j.yaw || 0, 0);
+            garantirJogadorLivre(false);
+        } else { posicionarJogadorNoSpawn(); }
+    } catch (erro) {
+        console.error('Erro ao carregar o save:', erro);
+        posicionarJogadorNoSpawn();
+    }
+    atualizarDinheiroUI();
+    atualizarUIAktiv();
+    renderizarMelhorias();
+    verificarProgresso();
+}
+
+// --- Tela inicial / menu de pausa: botões de save ---
+(function configurarBotoesDeSave() {
+    const btnPlay = document.getElementById('btn-iniciar-jogo');
+    const btnNovo = document.getElementById('btn-novo-jogo');
+    const info = document.getElementById('info-save');
+    if (saveInicial) {
+        if (btnPlay) btnPlay.innerText = '[[play]] CONTINUAR';
+        if (btnNovo) btnNovo.style.display = 'block';
+        if (info) {
+            const min = Math.max(0, Math.round((Date.now() - saveInicial.salvoEm) / 60000));
+            const quando = min < 1 ? 'agora há pouco' : (min < 60 ? 'há ' + min + ' min' : (min < 1440 ? 'há ' + Math.round(min / 60) + ' h' : 'há ' + Math.round(min / 1440) + ' dia(s)'));
+            info.innerText = '[[salvar]] Jogo salvo encontrado (' + quando + ')';
+            info.style.display = 'block';
+        }
+    }
+    btnNovo?.addEventListener('click', () => {
+        if (confirm('Apagar o jogo salvo e começar um mundo novo? Isso não pode ser desfeito.')) apagarSaveERecomecar();
+    });
+    document.getElementById('btn-salvar-agora')?.addEventListener('click', () => gravarSave(true));
+    document.getElementById('btn-apagar-save')?.addEventListener('click', () => {
+        if (confirm('Apagar o jogo salvo e recomeçar do zero? Isso não pode ser desfeito.')) apagarSaveERecomecar();
+    });
+})();
+
+// Salva sozinho: a cada 25s, ao esconder a aba e ao fechar a página.
+setInterval(() => gravarSave(false), 25000);
+document.addEventListener('visibilitychange', () => { if (document.hidden) gravarSave(false); });
+window.addEventListener('pagehide', () => gravarSave(false));
+window.addEventListener('beforeunload', () => gravarSave(false));
+
+// Chamada todo frame pelo loop principal.
+let estavaNoite = false, acumuladorVerificacao = 0;
+function atualizarSistemasJogo(delta, alturaSol) {
+    if (!jogoIniciado) return;
+    if (!jogoPausado) estatisticas.tempoJogado += delta;
+    if (alturaSol < -0.1) estavaNoite = true;
+    else if (estavaNoite && alturaSol > 0.15) { estavaNoite = false; registrarEstatistica('noitesVividas'); }
+    acumuladorVerificacao += delta;
+    if (acumuladorVerificacao >= 10) { acumuladorVerificacao = 0; verificarProgresso(); }
+}
+
+// Estado inicial: monta os cards/painéis e carrega o save (ou nasce em terra firme).
+construirCardsAcabamentos();
+carregarJogoSalvo();
+
 animar();
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderizador.setSize(window.innerWidth, window.innerHeight); });
 
@@ -5591,7 +6976,7 @@ function renderizarMochila() {
                 if (cfg) slot.appendChild(criarElementoIcone(cfg.icone));
                 const spanQtd = document.createElement('span');
                 spanQtd.className = 'qtd';
-                spanQtd.innerText = inventario[chave];
+                spanQtd.innerText = FERRAMENTAS_MELHORAVEIS.includes(chave) ? 'Nv ' + niveisFerramentas[chave] : inventario[chave];
                 slot.appendChild(spanQtd);
                 if (chave === itemSelecionadoMochila) slot.classList.add('selecionado');
             } else {
@@ -5629,7 +7014,7 @@ function renderizarMochila() {
 
             const spanQtd = document.createElement('span');
             spanQtd.className = 'qtd';
-            spanQtd.innerText = qtd;
+            spanQtd.innerText = FERRAMENTAS_MELHORAVEIS.includes(chave) ? 'Nv ' + niveisFerramentas[chave] : qtd;
             card.appendChild(spanQtd);
 
             const indiceHotbar = hotbar.indexOf(chave);
@@ -5684,7 +7069,7 @@ function colocarItemNoSlot(chaveItem, indice) {
         if (hotbar.indexOf(itemAtivo) === -1) itemAtivo = 'machado';
     }
 
-    mostrarNotificacao('🎒 ' + (NOMES_ITENS[chaveItem] || chaveItem) + ' equipado!', '#22c55e');
+    mostrarNotificacao('[[mochila]] ' + (NOMES_ITENS[chaveItem] || chaveItem) + ' equipado!', '#22c55e');
     renderizarHotbar();
     renderizarMochila();
 }
@@ -5791,7 +7176,7 @@ function renderizarCarrinhoVenda() {
         linha.className = 'carrinho-linha';
         linha.innerHTML = '<span class="carrinho-nome">' + NOMES_RECURSOS[recurso] + ' x ' + qtd + '</span>' +
             '<span class="carrinho-subtotal">' + formatarDinheiro(subtotal) + '</span>' +
-            '<button class="btn-carrinho-remover" onclick="removerRecursoDoCarrinho(\'' + recurso + '\')" aria-label="Remover">✕</button>';
+            '<button class="btn-carrinho-remover" onclick="removerRecursoDoCarrinho(\'' + recurso + '\')" aria-label="Remover">[[fechar]]</button>';
         lista.appendChild(linha);
     });
 
@@ -5874,11 +7259,14 @@ window.finalizarVenda = function () {
     }
 
     dinheiroJogador += total;
+    estatisticas.vendas++; estatisticas.dinheiroGanho += total;
     Object.keys(carrinhoVenda).forEach(recurso => { carrinhoVenda[recurso] = 0; });
 
     atualizarDinheiroUI();
     atualizarUILoja();
     mostrarNotificacao('Venda concluída! Você recebeu ' + formatarDinheiro(total) + '.', '#22c55e');
+    verificarProgresso();
+    salvarJogo();
 };
 
 // Sai da tela do computador. Qualquer recurso ainda reservado no carrinho
@@ -5933,7 +7321,7 @@ function toqueEmAreaDeUI(alvo) {
 
 window.addEventListener('touchstart', (e) => {
     if (!jogoIniciado || jogoPausado || !ehTouch) return;
-    if (mochilaAberta || menuCraftingAberto || menuLojaAberto || menuTVAberto) return;
+    if (mochilaAberta || menuCraftingAberto || menuLojaAberto || menuTVAberto || diarioAberto) return;
 
     for (let i = 0; i < e.changedTouches.length; i++) {
         const touch = e.changedTouches[i];

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=none">
     <title>City Mind</title>
-    <link rel="stylesheet" href="style.css?v=16">
+    <link rel="stylesheet" href="style.css?v=18">
 
     <script>
         // DIAGNÓSTICO TEMPORÁRIO: mostra qualquer erro de JavaScript na tela
@@ -42,13 +42,15 @@
 
             <div class="painel-botoes">
                 <button id="btn-iniciar-jogo" class="btn-principal">
-                    <span>▶ PLAY NOW</span>
+                    <span>[[play]] PLAY NOW</span>
                 </button>
+                <button id="btn-novo-jogo" class="btn-secundario" style="display:none;">[[novo]] Novo Jogo (apagar save)</button>
                 <button id="btn-abrir-controles-start" class="btn-secundario">
-                    🕹️ Ver Controles
+                    [[controles]] Ver Controles
                 </button>
             </div>
 
+            <div id="info-save" class="info-save" style="display:none;"></div>
             <div class="footer-creditos">Pressione o botão para entrar na floresta</div>
         </div>
     </div>
@@ -60,13 +62,13 @@
 
             <div class="audio-controles">
                 <div class="audio-controles-linha">
-                    <span class="audio-controles-icone">🔊</span>
+                    <span class="audio-controles-icone">[[som]]</span>
                     <span class="audio-controles-nome">Efeitos Sonoros</span>
                     <input type="range" id="slider-volume-efeitos" min="0" max="1" step="0.01" value="0.8" oninput="definirVolumeEfeitos(this.value); document.getElementById('valor-volume-efeitos').innerText = Math.round(this.value*100)+'%';">
                     <span class="audio-controles-valor" id="valor-volume-efeitos">80%</span>
                 </div>
                 <div class="audio-controles-linha">
-                    <span class="audio-controles-icone">🎵</span>
+                    <span class="audio-controles-icone">[[musica]]</span>
                     <span class="audio-controles-nome">Música de Fundo</span>
                     <input type="range" id="slider-volume-musica" min="0" max="1" step="0.01" value="0.3" oninput="definirVolumeMusica(this.value); document.getElementById('valor-volume-musica').innerText = Math.round(this.value*100)+'%';">
                     <span class="audio-controles-valor" id="valor-volume-musica">30%</span>
@@ -74,16 +76,19 @@
             </div>
 
             <div class="menu-pause-opcoes">
-                <button id="btn-retomar" class="btn-pause">▶ Continuar Jogando</button>
-                <button id="btn-controles-pause" class="btn-pause">🕹️ Como Jogar</button>
-                <button id="btn-reiniciar" class="btn-pause btn-danger">🔄 Recarregar Jogo</button>
+                <button id="btn-retomar" class="btn-pause">[[play]] Continuar Jogando</button>
+                <button id="btn-diario-pause" class="btn-pause">[[diario]] Missões e Conquistas</button>
+                <button id="btn-salvar-agora" class="btn-pause">[[salvar]] Salvar Jogo Agora</button>
+                <button id="btn-controles-pause" class="btn-pause">[[controles]] Como Jogar</button>
+                <button id="btn-reiniciar" class="btn-pause btn-danger">[[refresh]] Recarregar Jogo (mantém o save)</button>
+                <button id="btn-apagar-save" class="btn-pause btn-danger">[[lixeira]] Apagar Save e Recomeçar</button>
             </div>
         </div>
     </div>
 
     <div id="modal-controles" class="overlay-tela" style="display: none;">
         <div class="conteudo-start conteudo-controles">
-            <h2 style="color: #fbbf24; margin-top: 0;">🕹️ CONTROLES</h2>
+            <h2 style="color: #fbbf24; margin-top: 0;">[[controles]] CONTROLES</h2>
             <div class="controles-lista">
                 <p><b>W, A, S, D:</b> Movimentar</p>
                 <p><b>Mouse:</b> Olhar ao redor</p>
@@ -91,12 +96,18 @@
                 <p><b>Clique Esquerdo (segurar) mirando numa construção ou item colocado:</b> Demole/remove e devolve a planta (ou o item, inclusive carro, TV, tapete e asfalto) pro seu inventário — funciona com qualquer item equipado</p>
                 <p><b>Teclas [1 a 9]:</b> Alternar itens do inventário</p>
                 <p><b>Tecla [E]:</b> Abrir Mesa de Crafting / Interagir</p>
-                <p><b>Tecla [B]:</b> Abrir Mochila</p>
+                <p><b>Teclas [I] ou [Tab]:</b> Abrir Mochila</p>
+                <p><b>Tecla [J]:</b> Diário (missões, conquistas e estatísticas)</p>
+                <p><b>[[semente]] Sementes:</b> às vezes caem ao cortar uma árvore. Equipe a semente, mire o chão e segure o clique pra plantar — ela vira árvore em ~2,5 minutos.</p>
+                <p><b>[[forja]] Melhorias:</b> na Mesa de Trabalho, aba "Melhorias", use ferro, cobre e ouro pra melhorar machado, picareta, pá e peneira (até o nível 4).</p>
+                <p><b>[[paleta]] Pisos e paredes:</b> crie na aba "Acabamentos". Segurando a planta, <b>[C]</b>/<b>[V]</b> trocam a cor. Paredes têm colisão — dá pra montar cômodos!</p>
+                <p><b>[[lampada]] Luz:</b> tochas, postes e lareiras acendem sozinhos à noite.</p>
+                <p><b>[[salvar]] Save:</b> o jogo salva sozinho a cada 25s (e também pelo menu de pausa).</p>
                 <p><b>Teclas [R / T]:</b> Girar planta de construção</p>
                 <p><b>Roda do Mouse:</b> Ajustar a distância de colocação (empurrar mais longe/perto)</p>
                 <p><b>Posicionamento:</b> a maioria das construções agora é livre (segue o mouse exatamente) — só piso e cama ficam numa grade alinhada. Segure <b>[Shift]</b> pra inverter isso (grade nos itens livres, livre no piso/cama)</p>
-                <p><b>🚗 Carro:</b> Compre no Computador, posicione-o no mundo e pressione [E] perto dele para entrar. W/A/S/D dirige, [F] liga/desliga os faróis, [E] sai.</p>
-                <p><b>📺 Televisão:</b> Compre no Computador, posicione-a no mundo e pressione [E] perto dela pra ligar e escolher um minigame (cobrinha, jogo da velha, memória, pong e reflexo).</p>
+                <p><b>[[carro]] Carro:</b> Compre no Computador, posicione-o no mundo e pressione [E] perto dele para entrar. W/A/S/D dirige, [F] liga/desliga os faróis, [E] sai.</p>
+                <p><b>[[tv]] Televisão:</b> Compre no Computador, posicione-a no mundo e pressione [E] perto dela pra ligar e escolher um minigame (cobrinha, jogo da velha, memória, pong e reflexo).</p>
                 <p><b>ESC:</b> Pausar o jogo / Menu</p>
             </div>
             <button id="btn-fechar-controles" class="btn-secundario">Fechar</button>
@@ -109,7 +120,7 @@
 
     <div id="mochila-container">
         <div class="mochila-header">
-            <h2>🎒 Sua Mochila</h2>
+            <h2>[[mochila]] Sua Mochila</h2>
             <button id="btn-fechar-mochila">X</button>
         </div>
 
@@ -119,12 +130,13 @@
         <div class="mochila-inventario-strip" id="mochila-inventario-strip"></div>
 
         <div class="mochila-abas" id="mochila-abas">
-            <button class="aba-mochila ativa" data-aba-mochila="todos">📋 Todos</button>
-            <button class="aba-mochila" data-aba-mochila="ferramentas">🛠️ Ferramentas</button>
-            <button class="aba-mochila" data-aba-mochila="construcoes">🏠 Construções</button>
-            <button class="aba-mochila" data-aba-mochila="delimitacao">🚧 Delimitação</button>
-            <button class="aba-mochila" data-aba-mochila="moveis">🪑 Móveis</button>
-            <button class="aba-mochila" data-aba-mochila="materiais">📦 Materiais</button>
+            <button class="aba-mochila ativa" data-aba-mochila="todos">[[lista]] Todos</button>
+            <button class="aba-mochila" data-aba-mochila="ferramentas">[[ferramentas]] Ferramentas</button>
+            <button class="aba-mochila" data-aba-mochila="construcoes">[[casa]] Construções</button>
+            <button class="aba-mochila" data-aba-mochila="delimitacao">[[barreira]] Delimitação</button>
+            <button class="aba-mochila" data-aba-mochila="moveis">[[cadeira]] Móveis</button>
+            <button class="aba-mochila" data-aba-mochila="acabamentos">[[paleta]] Acabamentos</button>
+            <button class="aba-mochila" data-aba-mochila="materiais">[[caixa]] Materiais</button>
         </div>
 
         <div class="mochila-grid" id="mochila-grid"></div>
@@ -132,47 +144,49 @@
 
     <div id="menu-crafting">
         <div class="crafting-header">
-            <h2>🛠️ Mesa de Trabalho</h2>
-            <button id="btn-fechar-crafting" class="btn-fechar-x" aria-label="Fechar">✕</button>
+            <h2>[[ferramentas]] Mesa de Trabalho</h2>
+            <button id="btn-fechar-crafting" class="btn-fechar-x" aria-label="Fechar">[[fechar]]</button>
         </div>
 
         <div class="crafting-saldo">
-            <span class="saldo-chip">🪵 <b id="craft-saldo-madeira">0</b></span>
-            <span class="saldo-chip">🪨 <b id="craft-saldo-pedra">0</b></span>
+            <span class="saldo-chip">[[madeira]] <b id="craft-saldo-madeira">0</b></span>
+            <span class="saldo-chip">[[pedra]] <b id="craft-saldo-pedra">0</b></span>
         </div>
 
         <div class="crafting-abas">
-            <button class="aba-craft ativa" data-aba="construcoes">🏠 Construções</button>
-            <button class="aba-craft" data-aba="delimitacao">🚧 Delimitação</button>
-            <button class="aba-craft" data-aba="moveis">🪑 Móveis</button>
-            <button class="aba-craft" data-aba="utilidades">🧰 Utilidades</button>
+            <button class="aba-craft ativa" data-aba="construcoes">[[casa]] Construções</button>
+            <button class="aba-craft" data-aba="delimitacao">[[barreira]] Delimitação</button>
+            <button class="aba-craft" data-aba="moveis">[[cadeira]] Móveis</button>
+            <button class="aba-craft" data-aba="acabamentos">[[paleta]] Acabamentos</button>
+            <button class="aba-craft" data-aba="melhorias">[[forja]] Melhorias</button>
+            <button class="aba-craft" data-aba="utilidades">[[caixa_ferramentas]] Utilidades</button>
         </div>
 
         <div class="crafting-grid" data-painel="construcoes">
             <div class="card-craft" id="craft-casa-p" data-custo-madeira="20" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-casa-p" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Casa Pequena</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 20</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 20</span></div>
                 <button onclick="craftarConstrucao('p', 20)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-casa-m" data-custo-madeira="30" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-casa-m" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Casa Média</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 30</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 30</span></div>
                 <button onclick="craftarConstrucao('m', 30)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-casa-g" data-custo-madeira="45" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-casa-g" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Casa Grande</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 45</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 45</span></div>
                 <button onclick="craftarConstrucao('g', 45)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-torre" data-custo-madeira="45" data-custo-pedra="15">
                 <div class="card-icone"><canvas id="canvas-torre" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Torre-Farol</div>
                 <div class="card-custos">
-                    <span class="custo-chip" data-recurso="madeira">🪵 45</span>
-                    <span class="custo-chip" data-recurso="pedra">🪨 15</span>
+                    <span class="custo-chip" data-recurso="madeira">[[madeira]] 45</span>
+                    <span class="custo-chip" data-recurso="pedra">[[pedra]] 15</span>
                 </div>
                 <button onclick="craftarConstrucao('torre', 45, 15)">Criar Planta</button>
             </div>
@@ -180,8 +194,8 @@
                 <div class="card-icone"><canvas id="canvas-casa-concreto" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Casa de Concreto</div>
                 <div class="card-custos">
-                    <span class="custo-chip" data-recurso="madeira">🪵 10</span>
-                    <span class="custo-chip" data-recurso="pedra">🪨 10</span>
+                    <span class="custo-chip" data-recurso="madeira">[[madeira]] 10</span>
+                    <span class="custo-chip" data-recurso="pedra">[[pedra]] 10</span>
                     <span class="custo-chip" data-recurso="saco_areia"><img class="custo-icone-img" src="img/areia.png" alt=""> 10</span>
                     <span class="custo-chip" data-recurso="cimento"><img class="custo-icone-img" src="img/cimento.png" alt=""> 300</span>
                 </div>
@@ -193,13 +207,13 @@
             <div class="card-craft" id="craft-cerca" data-custo-madeira="10" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-cerca" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Cerca de Madeira x5</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 10</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 10</span></div>
                 <button onclick="craftarConstrucao('cerca', 10, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-muro" data-custo-madeira="0" data-custo-pedra="15">
                 <div class="card-icone"><canvas id="canvas-muro" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Muro de Pedra x5</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">🪨 15</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">[[pedra]] 15</span></div>
                 <button onclick="craftarConstrucao('muro', 0, 15)">Criar Planta</button>
             </div>
         </div>
@@ -208,21 +222,21 @@
             <div class="card-craft" id="craft-mesa" data-custo-madeira="6" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-mesa" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Mesa</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 6</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 6</span></div>
                 <button onclick="craftarConstrucao('mesa', 6, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-cadeira" data-custo-madeira="3" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-cadeira" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Cadeira</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 3</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 3</span></div>
                 <button onclick="craftarConstrucao('cadeira', 3, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-bau" data-custo-madeira="8" data-custo-pedra="2">
                 <div class="card-icone"><canvas id="canvas-bau" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Baú</div>
                 <div class="card-custos">
-                    <span class="custo-chip" data-recurso="madeira">🪵 8</span>
-                    <span class="custo-chip" data-recurso="pedra">🪨 2</span>
+                    <span class="custo-chip" data-recurso="madeira">[[madeira]] 8</span>
+                    <span class="custo-chip" data-recurso="pedra">[[pedra]] 2</span>
                 </div>
                 <button onclick="craftarConstrucao('bau', 8, 2)">Criar Planta</button>
             </div>
@@ -230,73 +244,76 @@
                 <div class="card-icone"><canvas id="canvas-lareira" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Lareira</div>
                 <div class="card-custos">
-                    <span class="custo-chip" data-recurso="madeira">🪵 3</span>
-                    <span class="custo-chip" data-recurso="pedra">🪨 6</span>
+                    <span class="custo-chip" data-recurso="madeira">[[madeira]] 3</span>
+                    <span class="custo-chip" data-recurso="pedra">[[pedra]] 6</span>
                 </div>
                 <button onclick="craftarConstrucao('lareira', 3, 6)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-banco" data-custo-madeira="4" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-banco" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Banco de Madeira</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 4</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 4</span></div>
                 <button onclick="craftarConstrucao('banco', 4, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-armario" data-custo-madeira="9" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-armario" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Armário</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 9</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 9</span></div>
                 <button onclick="craftarConstrucao('armario', 9, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-estante" data-custo-madeira="7" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-estante" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Estante de Livros</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 7</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 7</span></div>
                 <button onclick="craftarConstrucao('estante', 7, 0)">Criar Planta</button>
             </div>
         </div>
+
+        <div class="crafting-grid" data-painel="acabamentos" style="display:none;"></div>
+        <div class="crafting-grid" data-painel="melhorias" style="display:none;"></div>
 
         <div class="crafting-grid" data-painel="utilidades" style="display:none;">
             <div class="card-craft" id="craft-fogueira" data-custo-madeira="2" data-custo-pedra="4">
                 <div class="card-icone"><img src="img/fogueira.png" alt="Fogueira" class="icone-craft-img"></div>
                 <div class="card-nome">Fogueira</div>
                 <div class="card-custos">
-                    <span class="custo-chip" data-recurso="madeira">🪵 2</span>
-                    <span class="custo-chip" data-recurso="pedra">🪨 4</span>
+                    <span class="custo-chip" data-recurso="madeira">[[madeira]] 2</span>
+                    <span class="custo-chip" data-recurso="pedra">[[pedra]] 4</span>
                 </div>
                 <button onclick="craftarConstrucao('fogueira', 2, 4)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-piso" data-custo-madeira="0" data-custo-pedra="6">
                 <div class="card-icone"><img src="img/piso.png" alt="Piso" class="icone-craft-img"></div>
                 <div class="card-nome">Piso de Pedra x10</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">🪨 6</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">[[pedra]] 6</span></div>
                 <button onclick="craftarConstrucao('piso', 0, 6)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-tocha" data-custo-madeira="1" data-custo-pedra="1">
                 <div class="card-icone"><canvas id="canvas-tocha" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Tocha</div>
                 <div class="card-custos">
-                    <span class="custo-chip" data-recurso="madeira">🪵 1</span>
-                    <span class="custo-chip" data-recurso="pedra">🪨 1</span>
+                    <span class="custo-chip" data-recurso="madeira">[[madeira]] 1</span>
+                    <span class="custo-chip" data-recurso="pedra">[[pedra]] 1</span>
                 </div>
                 <button onclick="craftarConstrucao('tocha', 1, 1)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-cama" data-custo-madeira="4" data-custo-pedra="0">
                 <div class="card-icone"><canvas id="canvas-cama" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Cama</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">🪵 4</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="madeira">[[madeira]] 4</span></div>
                 <button onclick="craftarConstrucao('cama', 4, 0)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-poste" data-custo-madeira="0" data-custo-pedra="5">
                 <div class="card-icone"><canvas id="canvas-poste" class="icone-canvas" width="44" height="44"></canvas></div>
                 <div class="card-nome">Poste de Luz</div>
-                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">🪨 5</span></div>
+                <div class="card-custos"><span class="custo-chip" data-recurso="pedra">[[pedra]] 5</span></div>
                 <button onclick="craftarConstrucao('poste', 0, 5)">Criar Planta</button>
             </div>
             <div class="card-craft" id="craft-peneira" data-custo-madeira="2" data-custo-ferro="1">
-                <div class="card-icone"><img src="img/peneira.png" alt="Peneira" class="icone-craft-img" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerText:'🧺',style:'font-size:32px'}))"></div>
+                <div class="card-icone"><img src="img/peneira.png" alt="Peneira" class="icone-craft-img" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerText:'[[peneira]]',style:'font-size:32px'}))"></div>
                 <div class="card-nome">Peneira</div>
                 <div class="card-custos">
-                    <span class="custo-chip" data-recurso="madeira">🪵 2</span>
+                    <span class="custo-chip" data-recurso="madeira">[[madeira]] 2</span>
                     <span class="custo-chip" data-recurso="ferro"><img src="img/ferro.png" alt="" class="custo-icone-img" onerror="this.style.display='none'"> 1</span>
                 </div>
                 <button onclick="craftarPeneira()">Criar Ferramenta</button>
@@ -308,20 +325,20 @@
 
     <div id="menu-loja">
         <div class="loja-header">
-            <h2>🖥️ Computador de Vendas</h2>
-            <button id="btn-fechar-loja" class="btn-fechar-x" aria-label="Fechar">✕</button>
+            <h2>[[pc]] Computador de Vendas</h2>
+            <button id="btn-fechar-loja" class="btn-fechar-x" aria-label="Fechar">[[fechar]]</button>
         </div>
 
         <div class="loja-abas">
-            <button class="aba-loja ativa" data-aba-loja="vender">💰 Vender Recursos</button>
-            <button class="aba-loja" data-aba-loja="comprar">🛒 Comprar Produtos</button>
+            <button class="aba-loja ativa" data-aba-loja="vender">[[dinheiro]] Vender Recursos</button>
+            <button class="aba-loja" data-aba-loja="comprar">[[carrinho]] Comprar Produtos</button>
         </div>
 
         <div class="loja-painel" data-loja-painel="vender">
 
         <div class="loja-grid">
             <div class="loja-item" id="loja-item-madeira" data-recurso="madeira">
-                <div class="loja-item-icone"><span style="font-size: 26px;">🪵</span></div>
+                <div class="loja-item-icone"><span style="font-size: 26px;">[[madeira]]</span></div>
                 <div class="loja-item-info">
                     <div class="loja-item-nome">Madeira</div>
                     <div class="loja-item-preco">$300.00 / unidade</div>
@@ -334,7 +351,7 @@
             </div>
 
             <div class="loja-item" id="loja-item-pedra" data-recurso="pedra">
-                <div class="loja-item-icone"><span style="font-size: 26px;">🪨</span></div>
+                <div class="loja-item-icone"><span style="font-size: 26px;">[[pedra]]</span></div>
                 <div class="loja-item-info">
                     <div class="loja-item-nome">Pedra</div>
                     <div class="loja-item-preco">$350.00 / unidade</div>
@@ -387,7 +404,7 @@
         </div>
 
         <div class="loja-carrinho">
-            <h3>🛒 Itens para Vender</h3>
+            <h3>[[carrinho]] Itens para Vender</h3>
             <div id="loja-carrinho-lista">
                 <div class="carrinho-vazio">Nenhum item adicionado ainda.</div>
             </div>
@@ -395,7 +412,7 @@
         </div>
 
         <div class="loja-acoes">
-            <button id="btn-fechar-venda" class="btn-principal-loja" disabled>💰 Fechar Venda</button>
+            <button id="btn-fechar-venda" class="btn-principal-loja" disabled>[[dinheiro]] Fechar Venda</button>
         </div>
 
         </div>
@@ -493,10 +510,10 @@
                 </div>
             </div>
             <div class="loja-comprar-info">
-                🔑 Escolha a cor, depois compre. O carro vai pro inventário já com a cor escolhida — equipe e posicione-o
+                [[chave]] Escolha a cor, depois compre. O carro vai pro inventário já com a cor escolhida — equipe e posicione-o
                 no mundo, como uma construção. Fique perto dele e pressione <b>E</b> para entrar e dirigir (W/A/S/D). Pressione <b>E</b> de novo para sair.<br><br>
-                📺 A televisão também é posicionada como uma construção. Fique perto dela e pressione <b>E</b> para ligar e escolher um minigame — tudo roda direto no navegador, sem precisar de nenhum arquivo extra.<br><br>
-                ⬛ Cada compra de asfalto já vem com 10 blocos prontos pra usar. Ele "pinta" um pedaço grande do chão, ótimo pra ruas, calçadas e praças — diferente do piso (pedra pequena, craftada na mesa de trabalho), o bloco de asfalto é bem maior e vem pronto da loja.
+                [[tv]] A televisão também é posicionada como uma construção. Fique perto dela e pressione <b>E</b> para ligar e escolher um minigame — tudo roda direto no navegador, sem precisar de nenhum arquivo extra.<br><br>
+                [[quadrado_preto]] Cada compra de asfalto já vem com 10 blocos prontos pra usar. Ele "pinta" um pedaço grande do chão, ótimo pra ruas, calçadas e praças — diferente do piso (pedra pequena, craftada na mesa de trabalho), o bloco de asfalto é bem maior e vem pronto da loja.
             </div>
             <div class="loja-comprar-em-breve">Mais produtos em breve...</div>
         </div>
@@ -507,8 +524,8 @@
     <!-- Menu da TV: grade de minigames. Clicar num card abre o jogo escolhido. -->
     <div id="menu-tv">
         <div class="tv-header">
-            <h2>📺 Escolha um Minigame</h2>
-            <button id="btn-fechar-tv" class="btn-fechar-x" aria-label="Fechar">✕</button>
+            <h2>[[tv]] Escolha um Minigame</h2>
+            <button id="btn-fechar-tv" class="btn-fechar-x" aria-label="Fechar">[[fechar]]</button>
         </div>
         <div class="tv-grid" id="tv-grid"></div>
         <div class="tv-footer">Pressione <b>E</b> ou <b>ESC</b> para desligar a TV</div>
@@ -519,8 +536,8 @@
         <div class="tv-video-header">
             <span id="tv-jogo-titulo">Jogo</span>
             <div class="tv-video-botoes">
-                <button id="btn-voltar-tv-jogo">⬅ Voltar aos jogos</button>
-                <button id="btn-fechar-tv-jogo" class="btn-fechar-x" aria-label="Fechar">✕</button>
+                <button id="btn-voltar-tv-jogo">[[seta_esq]] Voltar aos jogos</button>
+                <button id="btn-fechar-tv-jogo" class="btn-fechar-x" aria-label="Fechar">[[fechar]]</button>
             </div>
         </div>
         <div id="tv-jogo-area"></div>
@@ -530,26 +547,47 @@
         <p>Por favor, vire o celular na <b>Horizontal</b> para jogar!</p>
     </div>
 
-    <button id="btn-fullscreen">⛶</button>
+    <button id="btn-fullscreen">[[tela_cheia]]</button>
 
     <div id="prompt-interacao">Pressione E para Interagir</div>
 
-    <div id="controles-mobile" style="display: none;">
-        <button id="btn-menu-mobile" class="btn-touch">☰</button>
-        <div id="zona-joystick"></div>
-        <div id="botoes-acao-mobile">
-            <button id="btn-interagir" class="btn-touch">E (interagir)</button>
-            <button id="btn-pulo" class="btn-touch">⬆ Pular</button>
-            <button id="btn-lanterna" class="btn-touch">🔦 Lanterna</button>
-            <button id="btn-corrida" class="btn-touch">⚡ Correr</button>
-            <button id="btn-mochila-mobile" class="btn-touch">🎒Mochila </button>
-            <button id="btn-girar-planta" class="btn-touch" style="display: none;">🔄 Girar</button>
-            <button id="btn-planta-mais-perto" class="btn-touch" style="display: none;">➖ Perto</button>
-            <button id="btn-planta-mais-longe" class="btn-touch" style="display: none;">➕ Longe</button>
+    <!-- HUD novo: missão atual, aviso grande (missão/conquista), cor do acabamento e ícone de save -->
+    <div id="hud-missao"></div>
+    <div id="aviso-grande"><span class="aviso-icone"></span><div><div class="aviso-titulo"></div><div class="aviso-texto"></div></div></div>
+    <div id="hud-cor-acabamento" style="display:none;"></div>
+    <div id="icone-save">[[salvar]] Salvo</div>
+
+    <div id="painel-diario" class="overlay-tela" style="display:none;">
+        <div class="painel-diario-conteudo">
+            <div class="crafting-header"><h2>[[diario]] Diário</h2><button id="btn-fechar-diario" class="btn-fechar-x">[[fechar]]</button></div>
+            <div class="diario-abas">
+                <button class="aba-diario ativa" data-aba-diario="missoes">[[alvo]] Missões</button>
+                <button class="aba-diario" data-aba-diario="conquistas">[[trofeu]] Conquistas</button>
+                <button class="aba-diario" data-aba-diario="stats">[[grafico]] Estatísticas</button>
+            </div>
+            <div id="diario-conteudo"></div>
         </div>
     </div>
 
-    <script src="script.js?v=20"></script>
+    <div id="controles-mobile" style="display: none;">
+        <button id="btn-menu-mobile" class="btn-touch">[[menu]]</button>
+        <button id="btn-diario-mobile" class="btn-touch">[[diario]]</button>
+        <div id="zona-joystick"></div>
+        <div id="botoes-acao-mobile">
+            <button id="btn-interagir" class="btn-touch">E (interagir)</button>
+            <button id="btn-pulo" class="btn-touch">[[seta_cima]] Pular</button>
+            <button id="btn-lanterna" class="btn-touch">[[lanterna]] Lanterna</button>
+            <button id="btn-corrida" class="btn-touch">[[raio]] Correr</button>
+            <button id="btn-mochila-mobile" class="btn-touch">[[mochila]]Mochila </button>
+            <button id="btn-girar-planta" class="btn-touch" style="display: none;">[[refresh]] Girar</button>
+            <button id="btn-cor-mobile" class="btn-touch" style="display: none;">[[paleta]] Cor</button>
+            <button id="btn-planta-mais-perto" class="btn-touch" style="display: none;">[[menos]] Perto</button>
+            <button id="btn-planta-mais-longe" class="btn-touch" style="display: none;">[[mais]] Longe</button>
+        </div>
+    </div>
+
+    <script src="icones.js?v=1"></script>
+    <script src="script.js?v=22"></script>
 </body>
 </html>
 
